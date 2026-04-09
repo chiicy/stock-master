@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 from datetime import UTC, datetime
 from typing import Any, Sequence
 
@@ -148,6 +149,36 @@ class ProviderRouter:
             return False
         return result.get('value', False)
 
+    def _invoke_batch_with_timeout(
+        self,
+        providers: Sequence[StockDataProvider],
+        capability: str,
+        *args: Any,
+    ) -> list[ProviderResult]:
+        results: list[ProviderResult] = [False] * len(providers)
+        threads: list[threading.Thread] = []
+
+        def worker(index: int, provider: StockDataProvider) -> None:
+            try:
+                handler = getattr(provider, capability)
+                results[index] = handler(*args)
+            except Exception:
+                results[index] = False
+
+        for index, provider in enumerate(providers):
+            thread = threading.Thread(target=worker, args=(index, provider), daemon=True)
+            thread.start()
+            threads.append(thread)
+
+        deadline = time.monotonic() + self.per_provider_timeout
+        for thread in threads:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            thread.join(timeout=remaining)
+
+        return [result if not thread.is_alive() else False for thread, result in zip(threads, results, strict=True)]
+
     def dispatch(
         self,
         capability: str,
@@ -217,14 +248,12 @@ class ProviderRouter:
         providers: Sequence[StockDataProvider] | None = None,
         routing_hint: dict[str, Any] | None = None,
     ) -> ProviderPayload:
-        path: list[str] = []
+        resolved = [provider for provider in self._resolve_providers(providers) if provider.available]
+        path = [provider.name for provider in resolved]
         payloads: list[ProviderPayload] = []
         sources: list[str] = []
-        for provider in self._resolve_providers(providers):
-            if not provider.available:
-                continue
-            path.append(provider.name)
-            value = self._invoke_with_timeout(provider, capability, *args)
+        results = self._invoke_batch_with_timeout(resolved, capability, *args)
+        for provider, value in zip(resolved, results, strict=True):
             if not is_provider_success(value):
                 continue
             payloads.append(value)

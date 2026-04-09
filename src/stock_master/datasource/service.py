@@ -27,6 +27,23 @@ DEFAULT_PRIORITY = [
     'opencli-iwc',
 ]
 
+CACHE_TTLS = {
+    # Query/search routing is interactive but not tick-level.
+    'search': 300,
+    # Quote-like views should stay short-lived.
+    'quote': 20,
+    'kline': 180,
+    # Capital flow and market breadth are short-cache market monitors.
+    'money_flow': 120,
+    'north_flow': 120,
+    'sector_flow': 180,
+    'limit_pool': 120,
+    # Fundamental payloads are slow-moving and safe to cache longer.
+    'statement': 43200,
+    'event': 21600,
+    'holder': 43200,
+}
+
 
 class DataSource:
     """Facade for the stock-master datasource layer."""
@@ -132,31 +149,31 @@ class DataSource:
         return data
 
     def get_search(self, query: str) -> dict[str, Any]:
-        return self._dispatch_with_cache(f'search_{query}', 300, 'get_search', query)
+        return self._dispatch_with_cache(f'search_{query}', CACHE_TTLS['search'], 'get_search', query)
 
     def get_quote(self, symbol: str) -> dict[str, Any]:
         normalized = normalize_symbol(symbol)
-        return self._dispatch_with_cache(f'quote_{normalized}', 20, 'get_quote', normalized)
+        return self._dispatch_with_cache(f'quote_{normalized}', CACHE_TTLS['quote'], 'get_quote', normalized)
 
     def get_snapshot(self, symbol: str) -> dict[str, Any]:
         return self.get_quote(symbol)
 
     def get_kline(self, symbol: str, days: int = 120) -> dict[str, Any]:
         normalized = normalize_symbol(symbol)
-        return self._dispatch_with_cache(f'kline_{normalized}_{days}', 180, 'get_kline', normalized, days)
+        return self._dispatch_with_cache(f'kline_{normalized}_{days}', CACHE_TTLS['kline'], 'get_kline', normalized, days)
 
     def get_intraday(self, symbol: str) -> dict[str, Any]:
         return self.get_quote(symbol)
 
     def get_money_flow(self, symbol: str) -> dict[str, Any]:
         normalized = normalize_symbol(symbol)
-        return self._dispatch_with_cache(f'flow_{normalized}', 120, 'get_money_flow', normalized)
+        return self._dispatch_with_cache(f'flow_{normalized}', CACHE_TTLS['money_flow'], 'get_money_flow', normalized)
 
     def get_north_flow(self) -> dict[str, Any]:
-        return self._dispatch_with_cache('north_flow', 120, 'get_north_flow')
+        return self._dispatch_with_cache('north_flow', CACHE_TTLS['north_flow'], 'get_north_flow')
 
     def get_sector_money_flow(self) -> dict[str, Any]:
-        return self._dispatch_with_cache('sector_flow', 180, 'get_sector_money_flow')
+        return self._dispatch_with_cache('sector_flow', CACHE_TTLS['sector_flow'], 'get_sector_money_flow')
 
     def get_financial(self, symbol: str) -> dict[str, Any]:
         return self._dispatch('get_financial', normalize_symbol(symbol))
@@ -170,49 +187,49 @@ class DataSource:
 
     def get_income_statement(self, symbol: str, period: str = 'yearly') -> dict[str, Any]:
         normalized = normalize_symbol(symbol)
-        data = self._dispatch_with_cache(f'income_{normalized}_{period}', 43200, 'get_income_statement', normalized, period)
+        data = self._dispatch_with_cache(f'income_{normalized}_{period}', CACHE_TTLS['statement'], 'get_income_statement', normalized, period)
         if data.get('status') == 'empty':
             return self._placeholder('get_income_statement', normalized, '利润表暂未命中可用数据源', data.get('fallback_path', []))
         return data
 
     def get_balance_sheet(self, symbol: str, period: str = 'yearly') -> dict[str, Any]:
         normalized = normalize_symbol(symbol)
-        data = self._dispatch_with_cache(f'balance_{normalized}_{period}', 43200, 'get_balance_sheet', normalized, period)
+        data = self._dispatch_with_cache(f'balance_{normalized}_{period}', CACHE_TTLS['statement'], 'get_balance_sheet', normalized, period)
         if data.get('status') == 'empty':
             return self._placeholder('get_balance_sheet', normalized, '资产负债表暂未命中可用数据源', data.get('fallback_path', []))
         return data
 
     def get_cash_flow(self, symbol: str, period: str = 'yearly') -> dict[str, Any]:
         normalized = normalize_symbol(symbol)
-        data = self._dispatch_with_cache(f'cash_{normalized}_{period}', 43200, 'get_cash_flow', normalized, period)
+        data = self._dispatch_with_cache(f'cash_{normalized}_{period}', CACHE_TTLS['statement'], 'get_cash_flow', normalized, period)
         if data.get('status') == 'empty':
             return self._placeholder('get_cash_flow', normalized, '现金流量表暂未命中可用数据源', data.get('fallback_path', []))
         return data
 
     def get_announcements(self, symbol: str, days: int = 180) -> dict[str, Any]:
         normalized = normalize_symbol(symbol)
-        data = self._dispatch_with_cache(f'announcements_{normalized}_{days}', 21600, 'get_announcements', normalized, days)
+        data = self._dispatch_with_cache(f'announcements_{normalized}_{days}', CACHE_TTLS['event'], 'get_announcements', normalized, days)
         if data.get('status') != 'empty':
             return data
         return self._placeholder('get_announcements', normalized, '公告真实源尚未接通或未命中数据。', data.get('fallback_path', []))
 
     def get_main_holders(self, symbol: str) -> dict[str, Any]:
         normalized = normalize_symbol(symbol)
-        data = self._dispatch_with_cache(f'holders_{normalized}', 43200, 'get_main_holders', normalized)
+        data = self._dispatch_with_cache(f'holders_{normalized}', CACHE_TTLS['holder'], 'get_main_holders', normalized)
         if data.get('status') != 'empty':
             return data
         return self._placeholder('get_main_holders', normalized, '主要股东数据暂未命中可用数据源。', data.get('fallback_path', []))
 
     def get_shareholder_changes(self, symbol: str) -> dict[str, Any]:
         normalized = normalize_symbol(symbol)
-        data = self._dispatch_with_cache(f'shareholder_changes_{normalized}', 21600, 'get_shareholder_changes', normalized)
+        data = self._dispatch_with_cache(f'shareholder_changes_{normalized}', CACHE_TTLS['event'], 'get_shareholder_changes', normalized)
         if data.get('status') != 'empty':
             return data
         return self._placeholder('get_shareholder_changes', normalized, '股东变动数据暂未命中可用数据源。', data.get('fallback_path', []))
 
     def get_dividend(self, symbol: str) -> dict[str, Any]:
         normalized = normalize_symbol(symbol)
-        data = self._dispatch_with_cache(f'dividend_{normalized}', 43200, 'get_dividend', normalized)
+        data = self._dispatch_with_cache(f'dividend_{normalized}', CACHE_TTLS['holder'], 'get_dividend', normalized)
         if data.get('status') != 'empty':
             return data
         return self._placeholder('get_dividend', normalized, '历史分红数据暂未命中可用数据源。', data.get('fallback_path', []))
@@ -224,10 +241,12 @@ class DataSource:
         return self._dispatch('get_sector_members', sector_code)
 
     def get_limit_up(self, date: str | None = None) -> dict[str, Any]:
-        return self._dispatch('get_limit_up', date)
+        cache_key = f'limit_up_{date or "latest"}'
+        return self._dispatch_with_cache(cache_key, CACHE_TTLS['limit_pool'], 'get_limit_up', date)
 
     def get_limit_down(self, date: str | None = None) -> dict[str, Any]:
-        return self._dispatch('get_limit_down', date)
+        cache_key = f'limit_down_{date or "latest"}'
+        return self._dispatch_with_cache(cache_key, CACHE_TTLS['limit_pool'], 'get_limit_down', date)
 
     def get_news(self, symbol: str | None = None) -> dict[str, Any]:
         data = self._dispatch('get_news', symbol)
@@ -271,4 +290,13 @@ class DataSource:
             'announcements': self.get_announcements(normalized, days=180),
             'news': self.get_news(normalized),
             'research': self.get_research(normalized),
+        }
+
+    def get_market_bundle(self, *, date: str | None = None) -> dict[str, Any]:
+        return {
+            'date': date,
+            'north_flow': self.get_north_flow(),
+            'sector_flow': self.get_sector_money_flow(),
+            'limit_up': self.get_limit_up(date),
+            'limit_down': self.get_limit_down(date),
         }

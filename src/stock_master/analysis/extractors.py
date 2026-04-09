@@ -41,3 +41,32 @@ def extract_closes_and_volumes(kline: Any) -> tuple[list[float], list[float], li
         except Exception:
             continue
     return closes, volumes, rows
+
+
+def extract_ohlcv_series(kline: Any) -> tuple[list[float], list[float], list[float], list[float], list[dict[str, Any]]]:
+    rows = extract_rows(kline)
+    highs: list[float] = []
+    lows: list[float] = []
+    closes: list[float] = []
+    volumes: list[float] = []
+    valid_rows: list[dict[str, Any]] = []
+    for row in rows:
+        close = pick(row, 'close', '收盘', '最新价')
+        high = pick(row, 'high', '最高')
+        low = pick(row, 'low', '最低')
+        volume = pick(row, 'volume', '成交量', 'vol')
+        try:
+            if high is None or low is None or close is None:
+                continue
+            highs.append(float(high))
+            lows.append(float(low))
+            closes.append(float(close))
+            valid_rows.append(row)
+        except Exception:
+            continue
+        try:
+            if volume is not None:
+                volumes.append(float(volume))
+        except Exception:
+            continue
+    return highs, lows, closes, volumes, valid_rows

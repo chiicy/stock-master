@@ -69,6 +69,7 @@ stock-master-install-opencli --target-dir ~/.opencli/clis
 ```text
 stock-master/
 ├── SKILL.md
+├── todo.md
 ├── references/
 ├── scripts/
 │   ├── _bootstrap.py
@@ -76,6 +77,7 @@ stock-master/
 │   └── data_source.py
 ├── src/stock_master/
 │   ├── analysis/
+│   │   ├── intents.py
 │   ├── common/
 │   ├── datasource/
 │   │   ├── backend.py
@@ -109,8 +111,33 @@ stock-master/
   - 负责 `first_success` / `aggregate` dispatch。
 - `src/stock_master/datasource/service.py`
   - 负责缓存、provider 排序和 `DataSource` facade。
+- `src/stock_master/analysis/intents.py`
+  - 负责 task-first 路由：区分市场概览、单股综合、深度技术面、深度基本面。
 - `src/stock_master/analysis/*.py`
   - 只消费公共 contract，生成结论与渲染输出。
+- `todo.md`
+  - 记录当前未满足的数据 capability / 字段缺口，避免在报告里假装支持。
+
+## Report Modes
+
+`stock-master` 当前支持两类主报告 + 两类深度模式：
+
+- `market_overview`
+  - 面向大盘、板块、情绪、北向、涨跌停等问句
+  - 当前主要基于北向资金、板块资金、涨跌停广度
+- `stock_report`
+  - 默认单股综合分析
+- `deep_technical`
+  - 吸收 `stock-analysis` 与 `stock-analysis-xiaping-remix`
+  - 重点是 `EMA50/EMA200`、`ADX`、支撑/压力、缺口保守表达、未来 3 日判断
+- `deep_fundamental`
+  - 吸收 `value-investing-detective`
+  - 重点是 gate、证据质量、估值准备度、法证/ESG 风险与数据缺口透明
+
+约束：
+
+- 深度技术面 / 深度基本面当前只面向 A 股。
+- 非 A 股不会伪装进入同一套深度模式，只会保留通用报告或边界说明。
 
 ## Shared Data Contract
 
@@ -359,6 +386,10 @@ STOCK_MASTER_RUN_LIVE=1 PYTHONPATH=src .venv/bin/python -m unittest discover -s 
 - 引入共享 `datasource/schema.py`
 - provider / runtime / service 全部接入共享 contract
 - 关键映射已补注释，并由单测校验
+- 新增 task-first intent 层与 `market_overview` report builder
+- 技术面已补 `EMA50/EMA200`、`ADX`、综合评分与市场环境联读
+- 基本面已补深度 gate、证据质量、估值准备度与法证风险槽位
+- 明确缺口已沉到 [todo.md](/Users/cychi/.agents/skills/stock-master/todo.md)
 
 如果后续要继续扩展，这份 README 应该足够回答下面几个问题：
 

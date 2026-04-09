@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from stock_master.analysis.extractors import extract_closes_and_volumes, extract_rows, pick
+from stock_master.analysis.extractors import extract_closes_and_volumes, extract_ohlcv_series, extract_rows, pick
 
 
 class StockAnalysisExtractorTests(unittest.TestCase):
@@ -34,6 +34,23 @@ class StockAnalysisExtractorTests(unittest.TestCase):
         self.assertEqual(rows[0]['close'], '10.5')
         self.assertEqual(closes, [10.5, 11.2, 12.0])
         self.assertEqual(volumes, [100.0, 130.0])
+
+    def test_extract_ohlcv_series_keeps_high_low_close_aligned(self) -> None:
+        kline = {
+            'items': [
+                {'high': '10.8', 'low': '9.9', 'close': '10.5', 'volume': '100'},
+                {'low': 10.4, 'close': 11.2, 'volume': 120},
+                {'high': 12.6, 'low': 11.8, 'close': 12.1, 'volume': 150},
+            ]
+        }
+
+        highs, lows, closes, volumes, rows = extract_ohlcv_series(kline)
+
+        self.assertEqual(highs, [10.8, 12.6])
+        self.assertEqual(lows, [9.9, 11.8])
+        self.assertEqual(closes, [10.5, 12.1])
+        self.assertEqual(volumes, [100.0, 150.0])
+        self.assertEqual(len(rows), 2)
 
 
 if __name__ == '__main__':

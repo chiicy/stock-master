@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from stock_master.analysis.indicators import calc_macd, calc_ma, calc_rsi, calc_volume_ratio, find_support_resistance
+from stock_master.analysis.indicators import calc_adx, calc_ema_last, calc_macd, calc_ma, calc_rsi, calc_volume_ratio, find_support_resistance
 
 
 class StockAnalysisIndicatorsTests(unittest.TestCase):
@@ -18,6 +18,14 @@ class StockAnalysisIndicatorsTests(unittest.TestCase):
         self.assertIn('dif', payload)
         self.assertIn('dea', payload)
         self.assertIn('hist', payload)
+
+    def test_ema_and_adx_return_expected_shape(self) -> None:
+        closes = [10.0 + index * 0.3 for index in range(60)]
+        highs = [value + 0.8 for value in closes]
+        lows = [value - 0.7 for value in closes]
+
+        self.assertIsNotNone(calc_ema_last(closes, 50))
+        self.assertIsNotNone(calc_adx(highs, lows, closes, 14))
 
     def test_volume_ratio_and_support_resistance(self) -> None:
         volumes = [100.0 + index for index in range(25)]

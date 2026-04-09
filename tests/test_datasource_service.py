@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+import time
 from typing import Any
 
 from stock_master.datasource import DataSource
@@ -109,6 +110,7 @@ class DataSourceServiceTests(unittest.TestCase):
         *,
         provider_available: dict[str, bool] | None = None,
         cache_enabled: bool = True,
+        per_source_timeout: float = 0.1,
     ) -> tuple[DataSource, MemoryCache]:
         cache = MemoryCache()
         ds = DataSource(
@@ -118,7 +120,7 @@ class DataSourceServiceTests(unittest.TestCase):
             cache_reader=cache.get,
             cache_writer=cache.set,
             cache_enabled=cache_enabled,
-            per_source_timeout=0.1,
+            per_source_timeout=per_source_timeout,
         )
         return ds, cache
 
@@ -422,6 +424,31 @@ class DataSourceServiceTests(unittest.TestCase):
         self.assertEqual([item['id'] for item in announcements['items']], ['same', 'extra'])
         self.assertEqual(announcements['items'][0]['kind'], 'announcement')
 
+    def test_aggregate_capability_runs_providers_concurrently(self) -> None:
+        def slow_news(provider_name: str) -> Any:
+            def worker(symbol: str | None = None) -> Any:
+                time.sleep(0.18)
+                return {'status': 'ok', 'items': [{'id': provider_name}]}
+
+            return worker
+
+        ds, _ = self.make_ds(
+            [
+                FakeProvider('opencli-sinafinance', get_news=slow_news('sina')),
+                FakeProvider('opencli-xueqiu', get_news=slow_news('xq')),
+                FakeProvider('opencli-bloomberg', get_news=slow_news('bbg')),
+            ],
+            cache_enabled=False,
+            per_source_timeout=0.25,
+        )
+
+        start = time.perf_counter()
+        news = ds.get_news('603966')
+        elapsed = time.perf_counter() - start
+
+        self.assertLess(elapsed, 0.4)
+        self.assertEqual(news['sources'], ['opencli-sinafinance', 'opencli-xueqiu', 'opencli-bloomberg'])
+
     def test_sector_helpers_use_same_router_contract(self) -> None:
         ds, _ = self.make_ds(
             [
@@ -444,6 +471,26 @@ class DataSourceServiceTests(unittest.TestCase):
         self.assertEqual(members['items'][0]['代码'], '603966')
         self.assertEqual(limit_up['items'][0]['symbol'], 'SH603966')
         self.assertEqual(limit_down['items'][0]['symbol'], 'SH600000')
+
+    def test_market_bundle_collects_market_level_sections(self) -> None:
+        ds, _ = self.make_ds(
+            [
+                FakeProvider(
+                    'akshare',
+                    get_north_flow={'items': [{'净流入': 3}]},
+                    get_sector_money_flow={'items': [{'板块': '算力'}]},
+                    get_limit_up={'items': [{'symbol': 'SH603966'}]},
+                    get_limit_down={'items': [{'symbol': 'SH600000'}]},
+                )
+            ]
+        )
+
+        bundle = ds.get_market_bundle()
+
+        self.assertEqual(bundle['north_flow']['source'], 'akshare')
+        self.assertEqual(bundle['sector_flow']['items'][0]['板块'], '算力')
+        self.assertEqual(bundle['limit_up']['items'][0]['symbol'], 'SH603966')
+        self.assertEqual(bundle['limit_down']['items'][0]['symbol'], 'SH600000')
 
     def test_get_bundle_collects_all_sections(self) -> None:
         provider = FakeProvider(

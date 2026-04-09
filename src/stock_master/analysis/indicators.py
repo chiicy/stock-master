@@ -36,6 +36,13 @@ def ema(values: list[float], period: int) -> list[float]:
     return output
 
 
+def calc_ema_last(values: list[float], period: int) -> float | None:
+    if len(values) < period or period <= 0:
+        return None
+    series = ema(values, period)
+    return series[-1] if series else None
+
+
 def calc_macd(prices: list[float]) -> dict[str, Any]:
     if len(prices) < 35:
         return {}
@@ -85,6 +92,47 @@ def calc_volume_ratio(volumes: list[float]) -> float | None:
     if avg20 == 0:
         return None
     return avg5 / avg20
+
+
+def calc_adx(highs: list[float], lows: list[float], closes: list[float], period: int = 14) -> float | None:
+    if period <= 0 or min(len(highs), len(lows), len(closes)) < period + 1:
+        return None
+
+    true_ranges: list[float] = []
+    plus_dm_values: list[float] = []
+    minus_dm_values: list[float] = []
+    for index in range(1, len(closes)):
+        high_diff = highs[index] - highs[index - 1]
+        low_diff = lows[index - 1] - lows[index]
+        plus_dm = high_diff if high_diff > low_diff and high_diff > 0 else 0.0
+        minus_dm = low_diff if low_diff > high_diff and low_diff > 0 else 0.0
+        true_range = max(
+            highs[index] - lows[index],
+            abs(highs[index] - closes[index - 1]),
+            abs(lows[index] - closes[index - 1]),
+        )
+        true_ranges.append(true_range)
+        plus_dm_values.append(plus_dm)
+        minus_dm_values.append(minus_dm)
+
+    if len(true_ranges) < period:
+        return None
+
+    dx_values: list[float] = []
+    for start in range(0, len(true_ranges) - period + 1):
+        tr_sum = sum(true_ranges[start:start + period])
+        if tr_sum == 0:
+            continue
+        plus_di = 100 * sum(plus_dm_values[start:start + period]) / tr_sum
+        minus_di = 100 * sum(minus_dm_values[start:start + period]) / tr_sum
+        denominator = plus_di + minus_di
+        if denominator == 0:
+            continue
+        dx_values.append(abs(plus_di - minus_di) / denominator * 100)
+    if not dx_values:
+        return None
+    recent = dx_values[-period:]
+    return sum(recent) / len(recent)
 
 
 def find_support_resistance(prices: list[float]) -> dict[str, Any]:

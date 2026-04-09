@@ -5,17 +5,40 @@ from typing import Any
 
 from stock_master.analysis.cli import parse_args
 from stock_master.analysis.render import render_text
-from stock_master.analysis.report import build_report
+from stock_master.analysis.report import build_analysis_report, build_report
 
 
 class FakeDataSource:
-    def __init__(self, bundle: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        bundle: dict[str, Any],
+        *,
+        search_result: dict[str, Any] | None = None,
+        deep_bundle: dict[str, Any] | None = None,
+    ) -> None:
         self.bundle = bundle
+        self.search_result = search_result or {'items': []}
+        self.deep_bundle = deep_bundle or {}
         self.calls: list[tuple[str, int]] = []
+        self.market_calls: list[str | None] = []
+        self.search_calls: list[str] = []
+        self.deep_calls: list[str] = []
 
     def get_bundle(self, symbol: str, days: int = 120) -> dict[str, Any]:
         self.calls.append((symbol, days))
         return self.bundle
+
+    def get_market_bundle(self, *, date: str | None = None) -> dict[str, Any]:
+        self.market_calls.append(date)
+        return self.bundle
+
+    def get_search(self, query: str) -> dict[str, Any]:
+        self.search_calls.append(query)
+        return self.search_result
+
+    def get_deep_fundamental_bundle(self, symbol: str, *, period: str = 'yearly', announcement_days: int = 180) -> dict[str, Any]:
+        self.deep_calls.append(symbol)
+        return self.deep_bundle
 
 
 def sample_bundle() -> dict[str, Any]:
@@ -34,8 +57,14 @@ def sample_bundle() -> dict[str, Any]:
         },
         'kline': {
             'items': [
-                {'close': close, 'volume': volume}
-                for close, volume in zip(prices, volumes, strict=True)
+                {
+                    'date': f'2026-03-{row_index + 1:02d}',
+                    'close': close,
+                    'high': close + 0.8,
+                    'low': close - 0.7,
+                    'volume': volume,
+                }
+                for row_index, (close, volume) in enumerate(zip(prices, volumes, strict=True))
             ],
         },
         'money_flow': {
@@ -127,6 +156,67 @@ class AnalyzeStockTests(unittest.TestCase):
         self.assertEqual(report['symbol'], 'SH603966')
         self.assertEqual(report['technical']['trend'], '多头排列，趋势偏强')
 
+    def test_build_analysis_report_routes_market_query_to_market_overview(self) -> None:
+        fake = FakeDataSource(
+            {
+                'north_flow': {'items': [{'净流入': 20}]},
+                'sector_flow': {'items': [{'板块': 'AI算力'}, {'板块': '机器人'}]},
+                'limit_up': {'items': [{'symbol': 'SH603966'}, {'symbol': 'SZ000001'}]},
+                'limit_down': {'items': [{'symbol': 'SH600000'}]},
+            }
+        )
+
+        report = build_analysis_report('今天A股市场怎么样', datasource=fake)
+        text = render_text(report)
+
+        self.assertEqual(report['report_type'], 'market')
+        self.assertEqual(fake.market_calls, [None])
+        self.assertEqual(report['market_overview']['bias'], '偏强')
+        self.assertIn('【市场概览】', text)
+        self.assertIn('强势板块：AI算力；机器人', text)
+        self.assertIn('能力边界：当前市场报告主要基于资金流与涨跌停广度', text)
+
+    def test_market_render_uses_placeholder_when_north_flow_missing(self) -> None:
+        fake = FakeDataSource(
+            {
+                'north_flow': {'items': []},
+                'sector_flow': {'items': []},
+                'limit_up': {'items': [{'symbol': 'SH603966'}]},
+                'limit_down': {'items': [{'symbol': 'SH600000'}]},
+            }
+        )
+
+        text = render_text(build_analysis_report('今天A股市场怎么样', datasource=fake))
+
+        self.assertIn('北向资金：暂无', text)
+
+    def test_build_analysis_report_matches_sector_keyword_from_chinese_query(self) -> None:
+        fake = FakeDataSource(
+            {
+                'north_flow': {'items': []},
+                'sector_flow': {'items': [{'板块': '机器人'}, {'板块': 'AI算力'}]},
+                'limit_up': {'items': []},
+                'limit_down': {'items': []},
+            }
+        )
+
+        report = build_analysis_report('机器人板块怎么看', datasource=fake)
+
+        self.assertEqual(report['report_type'], 'sector')
+        self.assertEqual(report['sector_overview']['matched_sectors'], ['机器人'])
+
+    def test_build_analysis_report_resolves_name_query_via_search(self) -> None:
+        fake = FakeDataSource(
+            sample_bundle(),
+            search_result={'items': [{'symbol': 'SH603966', 'name': '法兰泰克'}]},
+        )
+
+        report = build_analysis_report('法兰泰克走势怎么看', datasource=fake)
+
+        self.assertEqual(fake.search_calls, ['法兰泰克走势怎么看'])
+        self.assertEqual(fake.calls, [('SH603966', 120)])
+        self.assertEqual(report['symbol'], 'SH603966')
+
     def test_prediction_mentions_rsi_and_fundamental_gap(self) -> None:
         fake = FakeDataSource(sample_bundle())
 
@@ -139,6 +229,33 @@ class AnalyzeStockTests(unittest.TestCase):
         self.assertEqual(report['technical']['three_day_view']['baseline'], '震荡倾向')
         self.assertIn('跌破 20.00', report['prediction']['invalidations'][0])
 
+    def test_build_analysis_report_enables_deep_technical_mode_for_a_share(self) -> None:
+        fake = FakeDataSource(sample_bundle())
+
+        report = build_analysis_report('像虾评一样分析 603966，看看支撑位压力位和未来三天', datasource=fake)
+
+        self.assertEqual(report['technical']['mode'], 'deep_technical')
+        self.assertEqual(report['intent']['mode'], 'deep_technical')
+        self.assertIn('EMA50', render_text(report))
+
+    def test_build_analysis_report_deep_fundamental_mode_collects_gate(self) -> None:
+        fake = FakeDataSource(
+            sample_bundle(),
+            deep_bundle={
+                'income_statement': {'status': 'ok', 'rows': [{'REPORT_DATE_NAME': '2024年报'}]},
+                'balance_sheet': {'status': 'ok', 'rows': [{'REPORT_DATE_NAME': '2024年报'}]},
+                'cash_flow': {'status': 'ok', 'rows': [{'REPORT_DATE_NAME': '2024年报'}]},
+                'announcements': {'status': 'ok', 'items': [{'公告标题': '董事会决议公告'}]},
+            },
+        )
+
+        report = build_analysis_report('用财报侦探方式分析 603966，做价值投资框架', datasource=fake)
+
+        self.assertEqual(fake.deep_calls, ['SH603966'])
+        self.assertEqual(report['fundamental']['analysis_mode'], '深度侦探模式（受限）')
+        self.assertIn('MD&A / 管理层讨论', report['fundamental']['detective_readiness']['missing_items'])
+        self.assertIn('逆向质疑', render_text(report))
+
     def test_render_text_contains_snapshot_flow_and_news_lines(self) -> None:
         text = render_text(build_report('603966', datasource=FakeDataSource(sample_bundle())))
 
@@ -146,6 +263,8 @@ class AnalyzeStockTests(unittest.TestCase):
         self.assertIn('主力净流入：1,200,000', text)
         self.assertIn('状态：error', text)
         self.assertIn('缺口观察：当前工具未直接返回缺口明细', text)
+        self.assertIn('模式：综合技术面', text)
+        self.assertIn('EMA50 / EMA200', text)
         self.assertIn('五、消息面', text)
         self.assertIn('倾向：中性', text)
         self.assertIn('最新公告：公司完成股份回购公告', text)
