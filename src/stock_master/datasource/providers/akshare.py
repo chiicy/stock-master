@@ -75,6 +75,8 @@ def get_quote(symbol: str) -> ProviderPayload:
     out: ProviderPayload = {'symbol': symbol}
     df = ak.stock_individual_spot_xq(symbol=symbol)
     pairs = {str(row['item']): row['value'] for _, row in df.iterrows()}
+    # AkShare returns a label/value table here, so we flatten it once into the
+    # shared quote contract and keep the original label map in `raw`.
     out.update(
         {
             '代码': pairs.get('代码', symbol),
@@ -123,6 +125,8 @@ def get_kline(symbol: str, days: int) -> ProviderPayload:
     df = ak.stock_zh_a_hist(symbol=symbol, start_date=start, end_date=end, adjust='')
     if df is None or df.empty:
         return {'error': 'empty'}
+    # Historical bars already match the shared OHLCV shape closely, so the
+    # provider only serializes rows and lets the schema layer wrap the payload.
     return {
         'symbol': symbol,
         'items': json.loads(df.tail(days).to_json(orient='records', force_ascii=False)),
@@ -137,6 +141,8 @@ def get_money_flow(symbol: str, market: str) -> ProviderPayload:
         return {'error': 'empty'}
     df = df.tail(20).copy()
     latest = df.iloc[-1].to_dict()
+    # Keep the recent table for downstream analysis, and surface the latest row
+    # again as top-level summary fields for fast consumers.
     return {
         'symbol': symbol,
         'items': json.loads(df.to_json(orient='records', force_ascii=False)),
@@ -212,6 +218,8 @@ def _statement_rows(df, symbol: str, period: str) -> ProviderPayload:
     if df is None or df.empty:
         return {'status': 'empty', 'symbol': symbol}
     rows = json.loads(df.to_json(orient='records', force_ascii=False))
+    # The three statements share the same row-oriented envelope; only capability
+    # and period differ at the schema layer.
     return {
         'symbol': symbol,
         'status': 'ok',

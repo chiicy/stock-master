@@ -42,6 +42,8 @@ def get_search(query: str) -> ProviderPayload:
     hit = df[mask].head(20).copy()
     if hit.empty:
         return {'error': 'empty'}
+    # adata's stock universe table uses provider-native column names, so we
+    # expose the stable search aliases here before the schema layer wraps them.
     hit['代码'] = hit['stock_code']
     hit['名称'] = hit['short_name']
     hit['市场'] = hit['exchange']
@@ -57,6 +59,8 @@ def get_quote(symbol: str) -> ProviderPayload:
     if df is None or df.empty:
         return {'error': 'empty'}
     last = df.iloc[-1].to_dict()
+    # The intraday bar payload is sparse, so only the fields adata actually
+    # returns are promoted into the shared quote shape.
     out.update(
         {
             '代码': symbol,
@@ -85,6 +89,8 @@ def get_kline(symbol: str, days: int) -> ProviderPayload:
     if df is None or df.empty:
         return {'error': 'empty'}
     df = df.tail(days).copy()
+    # These assignments document the canonical OHLCV aliases expected by the
+    # rest of stock-master, independent of adata's raw column names.
     df['日期'] = df['trade_date']
     df['股票代码'] = df['stock_code']
     df['开盘'] = df['open']
@@ -135,6 +141,8 @@ def get_money_flow(symbol: str) -> ProviderPayload:
     if df is None or df.empty:
         return {'error': 'empty'}
     df = df.tail(20).copy()
+    # Capital-flow columns are normalized once here so downstream logic can use
+    # the same net-inflow names across adata / akshare / opencli.
     df['日期'] = df['trade_date']
     df['主力净流入-净额'] = df['main_net_inflow']
     df['超大单净流入-净额'] = df['max_net_inflow']

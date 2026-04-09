@@ -223,7 +223,9 @@ class ProviderRuntimeTests(unittest.TestCase):
         self.assertEqual(result['source'], 'merged')
         self.assertEqual(result['sources'], ['akshare', 'opencli'])
         self.assertEqual(result['fallback_path'], ['akshare', 'opencli'])
-        self.assertEqual(result['items'], [{'id': 'a'}, {'id': 'b'}, {'id': 'c'}])
+        self.assertEqual([item['id'] for item in result['items']], ['a', 'b', 'c'])
+        self.assertEqual(result['capability'], 'news')
+        self.assertEqual(result['items'][0]['meta']['capability'], 'news')
 
     def test_merge_strategy_returns_success_when_some_providers_fail(self) -> None:
         router = ProviderRouter(
@@ -240,7 +242,8 @@ class ProviderRuntimeTests(unittest.TestCase):
         self.assertEqual(result['source'], 'merged')
         self.assertEqual(result['sources'], ['adata'])
         self.assertEqual(result['fallback_path'], ['akshare', 'adata', 'opencli'])
-        self.assertEqual(result['rows'], [{'title': 'coverage'}])
+        self.assertEqual([row['title'] for row in result['rows']], ['coverage'])
+        self.assertEqual(result['rows'][0]['kind'], 'research')
 
     def test_merge_strategy_deduplicates_rows(self) -> None:
         router = ProviderRouter(
@@ -263,13 +266,9 @@ class ProviderRuntimeTests(unittest.TestCase):
         result = router.dispatch('get_announcements', 'SH603966', 30, strategy='merge')
 
         self.assertEqual(result['source'], 'merged')
-        self.assertEqual(
-            result['rows'],
-            [
-                {'title': '补充公告', 'date': '2025-01-02'},
-                {'title': '公告', 'date': '2025-01-01'},
-            ],
-        )
+        self.assertEqual([row['title'] for row in result['rows']], ['补充公告', '公告'])
+        self.assertEqual([row['date'] for row in result['rows']], ['2025-01-02', '2025-01-01'])
+        self.assertEqual(result['rows'][0]['kind'], 'announcement')
 
 
 if __name__ == '__main__':

@@ -11,6 +11,7 @@ from stock_master.common.symbols import code_only, normalize_symbol
 
 from ..backend import CommandBackend
 from ..interface import ProviderPayload, ProviderResult, StockDataProvider
+from ..schema import action_to_capability, ensure_payload_contract
 
 
 def market_prefix(symbol: str) -> str:
@@ -57,7 +58,16 @@ class BaseProvider(StockDataProvider):
         self.backend = backend
         self.available = available
 
-    def _normalize_payload(self, data: Any) -> ProviderResult:
+    def _normalize_payload(
+        self,
+        data: Any,
+        *,
+        capability: str | None = None,
+        symbol: str | None = None,
+        query: str | None = None,
+        source_channel: str | None = None,
+        include_record_raw: bool = False,
+    ) -> ProviderResult:
         if data in (None, False):
             return False
         if isinstance(data, list):
@@ -81,6 +91,15 @@ class BaseProvider(StockDataProvider):
         )
         if not meaningful and data.get('status') not in {'ok', 'placeholder'}:
             return False
+        if capability is not None:
+            return ensure_payload_contract(
+                data,
+                capability=capability,
+                symbol=symbol,
+                query=query,
+                source_channel=source_channel,
+                include_record_raw=include_record_raw,
+            )
         return data
 
     def _date_window(self, days: int, minimum_days: int = 90) -> tuple[str, str]:
@@ -122,7 +141,14 @@ class ModuleProvider(BaseProvider):
             data = self.backend.run_module_json(self.module_name, action, payload, timeout=timeout)
         except Exception:
             return False
-        return self._normalize_payload(data)
+        capability = action_to_capability(action)
+        return self._normalize_payload(
+            data,
+            capability=capability,
+            symbol=payload.get('symbol'),
+            query=payload.get('query'),
+            source_channel=f'{self.name}.{capability}',
+        )
 
 
 def run_worker_cli(actions: dict[str, Callable[..., ProviderPayload]]) -> int:

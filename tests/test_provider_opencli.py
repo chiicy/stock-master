@@ -28,6 +28,10 @@ class OpenCliProviderTests(unittest.TestCase):
         result = provider.get_search('603966')
 
         self.assertEqual(result['items'][0]['symbol'], 'SH603966')
+        self.assertEqual(result['items'][0]['代码'], '603966')
+        self.assertEqual(result['items'][0]['kind'], 'search_result')
+        self.assertEqual(result['capability'], 'search')
+        self.assertEqual(result['items'][0]['meta']['capability'], 'search')
         self.assertEqual(
             backend.opencli_calls,
             [('dc', 'search', '--query', '603966'), ('xq', 'search', '--query', '603966')],
@@ -56,19 +60,26 @@ class OpenCliProviderTests(unittest.TestCase):
 
         self.assertEqual(result['symbol'], 'AAPL')
         self.assertEqual(result['regularMarketPrice'], 188.3)
+        self.assertEqual(result['最新价'], 188.3)
+        self.assertEqual(result['source_channel'], 'yahoo-finance.quote')
+        self.assertEqual(result['capability'], 'quote')
+        self.assertEqual(result['meta']['market'], 'global')
         self.assertEqual(
             backend.opencli_calls,
             [('yahoo-finance', 'quote', 'AAPL')],
         )
 
     def test_quote_tries_sinafinance_for_a_share_before_stopping(self) -> None:
-        backend = BackendStub([None, None, None, {'symbol': 'SH603966', 'name': '法兰泰克'}])
+        backend = BackendStub([None, None, None, {'symbol': 'SH603966', 'name': '法兰泰克', 'price': '13.900', 'changePercent': '0.58%'}])
         provider = OpenCliProvider(backend, True)
 
         result = provider.get_quote('603966')
 
         self.assertEqual(result['symbol'], 'SH603966')
         self.assertEqual(result['name'], '法兰泰克')
+        self.assertEqual(result['最新价'], 13.9)
+        self.assertEqual(result['percent'], 0.58)
+        self.assertEqual(result['meta']['market'], 'a_share')
         self.assertEqual(
             backend.opencli_calls,
             [
@@ -104,6 +115,10 @@ class OpenCliProviderTests(unittest.TestCase):
         result = provider.get_kline('603966', days=30)
 
         self.assertEqual(result['items'][0]['close'], 10.5)
+        self.assertEqual(result['items'][0]['收盘'], 10.5)
+        self.assertEqual(result['source_channel'], 'xueqiu.kline')
+        self.assertEqual(result['items'][0]['kind'], 'kline')
+        self.assertIn('raw', result['items'][0])
         self.assertEqual(
             backend.opencli_calls,
             [
@@ -126,10 +141,14 @@ class OpenCliProviderTests(unittest.TestCase):
 
         self.assertEqual(len(result['items']), 4)
         self.assertEqual(result['items'][0]['source_channel'], 'bloomberg.markets')
+        self.assertEqual(result['items'][0]['发布时间'], '2024-04-02')
         self.assertEqual(result['items'][1]['source_channel'], 'xueqiu.comments')
         self.assertEqual(result['items'][1]['title'], '雪球讨论帖')
+        self.assertEqual(result['items'][1]['新闻标题'], '雪球讨论帖')
         self.assertEqual(result['items'][2]['source_channel'], 'sinafinance.news')
         self.assertEqual(result['items'][3]['source_channel'], 'sinafinance.rolling-news')
+        self.assertEqual(result['capability'], 'news')
+        self.assertEqual(result['items'][0]['kind'], 'market_news')
         self.assertEqual(
             backend.opencli_calls,
             [
@@ -152,9 +171,12 @@ class OpenCliProviderTests(unittest.TestCase):
         self.assertEqual(len(result['items']), 2)
         self.assertEqual(result['items'][0]['kind'], 'research')
         self.assertEqual(result['items'][0]['source_channel'], 'xueqiu.comments')
+        self.assertEqual(result['items'][0]['报告名称'], 'Q1 业绩点评')
         self.assertEqual(result['items'][1]['kind'], 'earnings_date')
         self.assertEqual(result['items'][1]['source_channel'], 'xueqiu.earnings-date')
         self.assertEqual(result['items'][1]['date'], '2024-05-10')
+        self.assertEqual(result['items'][1]['发布时间'], '2024-05-10')
+        self.assertEqual(result['capability'], 'research')
 
     def test_announcements_returns_items_from_earnings_and_comments(self) -> None:
         backend = BackendStub([
@@ -168,8 +190,10 @@ class OpenCliProviderTests(unittest.TestCase):
         self.assertEqual(len(result['items']), 2)
         self.assertEqual(result['items'][0]['kind'], 'announcement')
         self.assertEqual(result['items'][0]['source_channel'], 'xueqiu.earnings-date')
+        self.assertEqual(result['items'][0]['公告标题'], '2024 Q1 Earnings')
         self.assertEqual(result['items'][1]['kind'], 'announcement_commentary')
         self.assertEqual(result['items'][1]['source_channel'], 'xueqiu.comments')
+        self.assertEqual(result['capability'], 'announcements')
 
     def test_money_flow_summarizes_latest_row(self) -> None:
         backend = BackendStub([[{'mainNetInflow': 1}, {'mainNetInflow': 2, 'smallNetInflow': -1}]])

@@ -179,6 +179,32 @@ class AnalyzeStockTests(unittest.TestCase):
         self.assertIn('利空：', report['news']['factor_summary'])
         self.assertIn('最值得盯的三条', report['news']['conclusion'])
 
+    def test_commentary_rows_do_not_override_actual_news_priority(self) -> None:
+        bundle = sample_bundle()
+        bundle['news'] = {
+            'status': 'ok',
+            'items': [
+                {
+                    'title': '$测试股份(SH603966)$ 走势讨论，短线偏强',
+                    'content': '社区评论',
+                    'publish_time': '2026-04-09T20:00:00.000Z',
+                    'kind': 'commentary',
+                    'source_channel': 'xueqiu.comments',
+                },
+                {
+                    'title': '测试股份签下新订单',
+                    'content': '公司公告新订单落地',
+                    'publish_time': '2026-04-09 10:00:00',
+                    'kind': 'news',
+                    'source_channel': 'sinafinance.news',
+                },
+            ],
+        }
+
+        report = build_report('603966', datasource=FakeDataSource(bundle))
+
+        self.assertEqual(report['news']['latest_news_title'], '测试股份签下新订单')
+
 
 if __name__ == '__main__':
     unittest.main()

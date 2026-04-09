@@ -402,7 +402,9 @@ class DataSourceServiceTests(unittest.TestCase):
         self.assertEqual(call_order, ['akshare', 'opencli'])
         self.assertEqual(news['source'], 'merged')
         self.assertEqual(news['sources'], ['akshare', 'opencli'])
-        self.assertEqual(news['items'], [{'id': 'news-1'}, {'id': 'news-2'}])
+        self.assertEqual([item['id'] for item in news['items']], ['news-1', 'news-2'])
+        self.assertEqual(news['capability'], 'news')
+        self.assertEqual(news['items'][0]['kind'], 'news')
 
     def test_announcements_merge_deduplicates_in_service(self) -> None:
         ds, _ = self.make_ds(
@@ -417,7 +419,8 @@ class DataSourceServiceTests(unittest.TestCase):
 
         self.assertEqual(announcements['source'], 'merged')
         self.assertEqual(announcements['sources'], ['akshare', 'opencli'])
-        self.assertEqual(announcements['items'], [{'id': 'same'}, {'id': 'extra'}])
+        self.assertEqual([item['id'] for item in announcements['items']], ['same', 'extra'])
+        self.assertEqual(announcements['items'][0]['kind'], 'announcement')
 
     def test_sector_helpers_use_same_router_contract(self) -> None:
         ds, _ = self.make_ds(

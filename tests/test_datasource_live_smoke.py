@@ -45,8 +45,13 @@ class DataSourceLiveSmokeTests(unittest.TestCase):
         self.assertIsNotNone(payload, msg=f'{name} returned None')
         self.assertIsInstance(payload, dict, msg=f'{name} should return dict payload')
 
-        if name in {'news', 'research'}:
-            self.assertEqual(payload.get('status'), 'placeholder')
+        if name in {'news', 'research', 'announcements'}:
+            if payload.get('status') == 'placeholder':
+                self.assertIn('fallback_path', payload, msg=f'{name} placeholder payload should expose fallback path')
+                return
+            self.assertEqual(payload.get('source'), 'merged')
+            self.assertIsInstance(payload.get('sources'), list, msg=f'{name} merged payload should expose sources')
+            self.assertIn('fallback_path', payload, msg=f'{name} merged payload should expose fallback path')
             return
 
         if payload.get('status') == 'empty':
@@ -70,6 +75,7 @@ class DataSourceLiveSmokeTests(unittest.TestCase):
             'sector_flow': self.ds.get_sector_money_flow(),
             'financial': self.ds.get_financial(LIVE_SYMBOL),
             'report': self.ds.get_report(LIVE_SYMBOL),
+            'announcements': self.ds.get_announcements(LIVE_SYMBOL),
             'sector_list': self.ds.get_sector_list(),
             'limit_up': self.ds.get_limit_up(),
             'limit_down': self.ds.get_limit_down(),

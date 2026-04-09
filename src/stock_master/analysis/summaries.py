@@ -471,16 +471,19 @@ def summarize_news(bundle: dict[str, Any]) -> dict[str, Any]:
     def _news_priority(row: dict[str, Any]) -> tuple[int, int, int, int, str]:
         title = _clean_text(pick(row, '新闻标题', 'title', '标题')).lower()
         body = _clean_text(pick(row, '新闻内容', 'content', '摘要')).lower()
+        kind = _clean_text(pick(row, 'kind'))
+        source_channel = _clean_text(pick(row, 'source_channel'))
         time_value = _parse_time_value(pick(row, '发布时间', 'publish_time', '时间', '日期'))[0]
         text = f'{title} {body}'
         company_terms = tuple(term.lower() for term in (name_token, code_token, *company_event_terms) if term)
         company_hit = any(term in text for term in company_terms)
         noisy_hit = any(term in text for term in noisy_terms)
+        source_rank = 1 if kind == 'commentary' or source_channel.endswith('.comments') else 0
         if noisy_hit and not company_hit:
-            return (2, 1, 0, -time_value, title)
+            return (source_rank + 2, 1, 0, -time_value, title)
         if company_hit:
-            return (0, 0, -abs(_score_text(text)), -time_value, title)
-        return (1, 0, -abs(_score_text(text)), -time_value, title)
+            return (source_rank, 0, -abs(_score_text(text)), -time_value, title)
+        return (source_rank + 1, 0, -abs(_score_text(text)), -time_value, title)
 
     ranked_announcements = sorted(announcement_rows, key=_rank_announcement)
     filtered_news_rows = sorted(news_rows, key=_news_priority)

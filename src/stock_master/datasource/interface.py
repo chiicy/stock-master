@@ -61,7 +61,10 @@ class StockDataProvider(ABC):
     """Provider contract for stock-master datasource backends.
 
     All provider methods must follow the same rule:
-    - success: return AkShare-style dict payload
+    - success: return the shared datasource envelope defined in
+      ``stock_master.datasource.schema``. The payload keeps stable common
+      fields for analysis and may attach provider-specific extras via
+      ``extensions`` / ``raw``.
     - unsupported / empty / exception / timeout: return False
     """
 

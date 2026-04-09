@@ -213,7 +213,7 @@ def preferred_provider_groups(capability: str, first_arg: Any = None) -> list[li
     if prefers_a_share_news_mix(capability, first_arg):
         return [['opencli-sinafinance', 'opencli-xueqiu'], ['opencli-bloomberg', 'opencli-iwc'], ['akshare', 'adata', 'baostock']]
     if prefers_global_news_mix(capability, first_arg):
-        return [['opencli-bloomberg', 'opencli-yahoo-finance', 'opencli-xueqiu'], ['opencli-sinafinance', 'opencli-iwc']]
+        return [['opencli-bloomberg', 'opencli-xueqiu'], ['opencli-sinafinance', 'opencli-iwc']]
     if prefers_sector_flow_stack(capability, first_arg):
         return [['akshare', 'adata', 'baostock'], ['opencli-dc']]
     if prefers_fundamental_stack(capability, first_arg):

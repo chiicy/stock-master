@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import Any, Sequence
 
 from .interface import CapabilitySpec, ProviderPayload, ProviderResult, StockDataProvider, get_capability_spec
+from .schema import action_to_capability, ensure_payload_contract
 
 
 def is_provider_success(data: ProviderResult) -> bool:
@@ -21,14 +22,14 @@ def is_provider_success(data: ProviderResult) -> bool:
     return True
 
 
-def tag_payload(payload: ProviderPayload, source: str, fallback_path: list[str]) -> ProviderPayload:
+def tag_payload(payload: ProviderPayload, source: str, fallback_path: list[str], capability: str) -> ProviderPayload:
     tagged = dict(payload)
     existing_source = tagged.get('source')
     if existing_source and existing_source != source:
         tagged.setdefault('source_detail', existing_source)
     tagged['source'] = source
     tagged['fallback_path'] = fallback_path
-    return tagged
+    return ensure_payload_contract(tagged, capability=action_to_capability(capability))
 
 
 def _record_identity(record: Any) -> str:
@@ -98,6 +99,7 @@ def aggregate_payloads(
     sources: list[str],
     fallback_path: list[str],
     spec: CapabilitySpec,
+    capability: str,
 ) -> ProviderPayload:
     merged: ProviderPayload = {
         'status': 'ok',
@@ -118,7 +120,7 @@ def aggregate_payloads(
     for key in list_keys:
         if key in merged and isinstance(merged[key], list):
             merged[key] = _sort_records(_dedupe_records(merged[key], spec), spec)
-    return merged
+    return ensure_payload_contract(merged, capability=action_to_capability(capability))
 
 
 class ProviderRouter:
@@ -191,14 +193,18 @@ class ProviderRouter:
             path.append(provider.name)
             value = self._invoke_with_timeout(provider, capability, *args)
             if is_provider_success(value) and _has_sufficient_fields(value, spec):
-                tagged = tag_payload(value, provider.name, path.copy())
+                tagged = tag_payload(value, provider.name, path.copy(), capability)
                 if routing_hint:
                     tagged['routing_hint'] = dict(routing_hint)
                 return tagged
-        empty: ProviderPayload = {
-            'status': 'empty',
-            'fallback_path': path,
-        }
+        empty = ensure_payload_contract(
+            {
+                'status': 'empty',
+                'fallback_path': path,
+            },
+            capability=action_to_capability(capability),
+            status='empty',
+        )
         if routing_hint:
             empty['routing_hint'] = dict(routing_hint)
         return empty
@@ -224,14 +230,18 @@ class ProviderRouter:
             payloads.append(value)
             sources.append(provider.name)
         if payloads:
-            merged = aggregate_payloads(payloads, sources, path, spec)
+            merged = aggregate_payloads(payloads, sources, path, spec, capability)
             if routing_hint:
                 merged['routing_hint'] = dict(routing_hint)
             return merged
-        empty: ProviderPayload = {
-            'status': 'empty',
-            'fallback_path': path,
-        }
+        empty = ensure_payload_contract(
+            {
+                'status': 'empty',
+                'fallback_path': path,
+            },
+            capability=action_to_capability(capability),
+            status='empty',
+        )
         if routing_hint:
             empty['routing_hint'] = dict(routing_hint)
         return empty

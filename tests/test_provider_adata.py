@@ -24,6 +24,8 @@ class AdataProviderTests(unittest.TestCase):
         result = provider.get_search('603966')
 
         self.assertEqual(result['items'][0]['代码'], '603966')
+        self.assertEqual(result['capability'], 'search')
+        self.assertEqual(result['items'][0]['kind'], 'search_result')
         self.assertEqual(
             backend.calls,
             [('stock_master.datasource.providers.adata', 'get_search', {'query': '603966'}, 90)],
@@ -36,6 +38,8 @@ class AdataProviderTests(unittest.TestCase):
         result = provider.get_financial('603966')
 
         self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['capability'], 'financial')
+        self.assertEqual(result['source_channel'], 'adata.financial')
         self.assertEqual(
             backend.calls,
             [('stock_master.datasource.providers.adata', 'get_financial', {'symbol': '603966.SH'}, 90)],

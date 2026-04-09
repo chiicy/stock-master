@@ -24,6 +24,9 @@ class AkshareProviderTests(unittest.TestCase):
         result = provider.get_quote('603966')
 
         self.assertEqual(result['price'], 1)
+        self.assertEqual(result['capability'], 'quote')
+        self.assertEqual(result['source_channel'], 'akshare.quote')
+        self.assertEqual(result['meta']['schema_version'], 1)
         self.assertEqual(
             backend.calls,
             [('stock_master.datasource.providers.akshare', 'get_quote', {'symbol': 'SH603966'}, 90)],
@@ -36,6 +39,8 @@ class AkshareProviderTests(unittest.TestCase):
         result = provider.get_kline('SH603966', 20)
 
         self.assertEqual(result['items'][0]['close'], 1)
+        self.assertEqual(result['capability'], 'kline')
+        self.assertEqual(result['meta']['primary_container'], 'items')
         self.assertEqual(
             backend.calls,
             [('stock_master.datasource.providers.akshare', 'get_kline', {'symbol': '603966', 'days': 20}, 90)],

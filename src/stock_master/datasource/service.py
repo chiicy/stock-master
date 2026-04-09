@@ -11,6 +11,7 @@ from .backend import CommandBackend
 from .interface import StockDataProvider, get_capability_spec
 from .providers import build_provider_map, order_providers, reorder_provider_sequence
 from .runtime import ProviderRouter
+from .schema import wrap_placeholder_payload
 
 DEFAULT_PYTHON_VENV = str(Path(__file__).resolve().parents[3] / '.venv' / 'bin' / 'python')
 DEFAULT_PRIORITY = [
@@ -93,13 +94,13 @@ class DataSource:
             'providers': [provider.name for provider in self.providers],
         }
 
-    def _placeholder(self, symbol: str | None, note: str, fallback_path: list[str]) -> dict[str, Any]:
-        return {
-            'symbol': symbol,
-            'status': 'placeholder',
-            'note': note,
-            'fallback_path': fallback_path,
-        }
+    def _placeholder(self, capability: str, symbol: str | None, note: str, fallback_path: list[str]) -> dict[str, Any]:
+        return wrap_placeholder_payload(
+            capability=capability.removeprefix('get_'),
+            symbol=symbol,
+            note=note,
+            fallback_path=fallback_path,
+        )
 
     def _cache_get(self, key: str, ttl_seconds: int) -> Any:
         if not self.cache_enabled:
@@ -164,28 +165,28 @@ class DataSource:
         normalized = normalize_symbol(symbol)
         data = self._dispatch('get_report', normalized)
         if data.get('status') == 'empty':
-            return self._placeholder(normalized, '财报摘要未命中可用数据源', data.get('fallback_path', []))
+            return self._placeholder('get_report', normalized, '财报摘要未命中可用数据源', data.get('fallback_path', []))
         return data
 
     def get_income_statement(self, symbol: str, period: str = 'yearly') -> dict[str, Any]:
         normalized = normalize_symbol(symbol)
         data = self._dispatch_with_cache(f'income_{normalized}_{period}', 43200, 'get_income_statement', normalized, period)
         if data.get('status') == 'empty':
-            return self._placeholder(normalized, '利润表暂未命中可用数据源', data.get('fallback_path', []))
+            return self._placeholder('get_income_statement', normalized, '利润表暂未命中可用数据源', data.get('fallback_path', []))
         return data
 
     def get_balance_sheet(self, symbol: str, period: str = 'yearly') -> dict[str, Any]:
         normalized = normalize_symbol(symbol)
         data = self._dispatch_with_cache(f'balance_{normalized}_{period}', 43200, 'get_balance_sheet', normalized, period)
         if data.get('status') == 'empty':
-            return self._placeholder(normalized, '资产负债表暂未命中可用数据源', data.get('fallback_path', []))
+            return self._placeholder('get_balance_sheet', normalized, '资产负债表暂未命中可用数据源', data.get('fallback_path', []))
         return data
 
     def get_cash_flow(self, symbol: str, period: str = 'yearly') -> dict[str, Any]:
         normalized = normalize_symbol(symbol)
         data = self._dispatch_with_cache(f'cash_{normalized}_{period}', 43200, 'get_cash_flow', normalized, period)
         if data.get('status') == 'empty':
-            return self._placeholder(normalized, '现金流量表暂未命中可用数据源', data.get('fallback_path', []))
+            return self._placeholder('get_cash_flow', normalized, '现金流量表暂未命中可用数据源', data.get('fallback_path', []))
         return data
 
     def get_announcements(self, symbol: str, days: int = 180) -> dict[str, Any]:
@@ -193,28 +194,28 @@ class DataSource:
         data = self._dispatch_with_cache(f'announcements_{normalized}_{days}', 21600, 'get_announcements', normalized, days)
         if data.get('status') != 'empty':
             return data
-        return self._placeholder(normalized, '公告真实源尚未接通或未命中数据。', data.get('fallback_path', []))
+        return self._placeholder('get_announcements', normalized, '公告真实源尚未接通或未命中数据。', data.get('fallback_path', []))
 
     def get_main_holders(self, symbol: str) -> dict[str, Any]:
         normalized = normalize_symbol(symbol)
         data = self._dispatch_with_cache(f'holders_{normalized}', 43200, 'get_main_holders', normalized)
         if data.get('status') != 'empty':
             return data
-        return self._placeholder(normalized, '主要股东数据暂未命中可用数据源。', data.get('fallback_path', []))
+        return self._placeholder('get_main_holders', normalized, '主要股东数据暂未命中可用数据源。', data.get('fallback_path', []))
 
     def get_shareholder_changes(self, symbol: str) -> dict[str, Any]:
         normalized = normalize_symbol(symbol)
         data = self._dispatch_with_cache(f'shareholder_changes_{normalized}', 21600, 'get_shareholder_changes', normalized)
         if data.get('status') != 'empty':
             return data
-        return self._placeholder(normalized, '股东变动数据暂未命中可用数据源。', data.get('fallback_path', []))
+        return self._placeholder('get_shareholder_changes', normalized, '股东变动数据暂未命中可用数据源。', data.get('fallback_path', []))
 
     def get_dividend(self, symbol: str) -> dict[str, Any]:
         normalized = normalize_symbol(symbol)
         data = self._dispatch_with_cache(f'dividend_{normalized}', 43200, 'get_dividend', normalized)
         if data.get('status') != 'empty':
             return data
-        return self._placeholder(normalized, '历史分红数据暂未命中可用数据源。', data.get('fallback_path', []))
+        return self._placeholder('get_dividend', normalized, '历史分红数据暂未命中可用数据源。', data.get('fallback_path', []))
 
     def get_sector_list(self) -> dict[str, Any]:
         return self._dispatch('get_sector_list')
@@ -232,13 +233,13 @@ class DataSource:
         data = self._dispatch('get_news', symbol)
         if data.get('status') != 'empty':
             return data
-        return self._placeholder(symbol, '消息面真实源尚未接通；当前不伪造新闻数据。', data.get('fallback_path', []))
+        return self._placeholder('get_news', symbol, '消息面真实源尚未接通；当前不伪造新闻数据。', data.get('fallback_path', []))
 
     def get_research(self, symbol: str) -> dict[str, Any]:
         data = self._dispatch('get_research', symbol)
         if data.get('status') != 'empty':
             return data
-        return self._placeholder(symbol, '研报真实源尚未接通；当前不伪造研报数据。', data.get('fallback_path', []))
+        return self._placeholder('get_research', symbol, '研报真实源尚未接通；当前不伪造研报数据。', data.get('fallback_path', []))
 
     def get_deep_fundamental_bundle(self, symbol: str, *, period: str = 'yearly', announcement_days: int = 180) -> dict[str, Any]:
         normalized = normalize_symbol(symbol)

@@ -49,6 +49,8 @@ def get_search(bs, query: str) -> ProviderPayload:
     query_lower = str(query).lower()
     for row in rows:
         code_value = row[0]
+        # BaoStock only exposes code-level lookup here, so we normalize just the
+        # stable identifier/name/market trio into the shared search shape.
         if query_lower in code_value.lower():
             items.append({'代码': code_value.split('.')[-1], '名称': code_value, '市场': code_value.split('.')[0].upper()})
         if len(items) >= 20:
@@ -74,6 +76,8 @@ def get_quote(bs, symbol: str) -> ProviderPayload:
     if not rows:
         return {'error': 'empty'}
     row = rows[-1]
+    # BaoStock gives daily bar columns in a fixed order; we map them once into
+    # the shared quote aliases and let the schema layer add envelope metadata.
     return {
         'symbol': symbol,
         '日期': row[0],
@@ -117,6 +121,8 @@ def get_kline(bs, symbol: str, code: str, days: int) -> ProviderPayload:
         return {'error': 'empty'}
     items = []
     for row in rows[-days:]:
+        # Historical rows are translated to the canonical OHLCV aliases here so
+        # indicator code can treat BaoStock like the other providers.
         items.append(
             {
                 '日期': row[0],
