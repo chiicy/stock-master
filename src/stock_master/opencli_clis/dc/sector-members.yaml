@@ -1,0 +1,59 @@
+site: dc
+name: sector-members
+description: 获取东方财富板块成分股列表
+domain: quote.eastmoney.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+args:
+  board_code:
+    type: str
+    required: true
+    description: 板块代码，如 BK1320
+  limit:
+    type: int
+    default: 20
+    description: 返回数量，默认 20，最大 100
+  sort:
+    type: str
+    default: desc
+    description: 排序方向：desc 涨幅榜 / asc 跌幅榜
+
+pipeline:
+  - navigate: https://quote.eastmoney.com/center/gridlist.html#hs_a_board
+  - evaluate: |
+      (async () => {
+        const boardCode = String(${{ args.board_code | json }} || '').trim().toUpperCase();
+        const limit = Math.max(1, Math.min(100, Number(${{ args.limit | json }} || 20)));
+        const sort = String(${{ args.sort | json }} || 'desc').trim().toLowerCase();
+        if (!boardCode) throw new Error('Missing argument: board_code');
+        const po = sort === 'asc' ? 0 : 1;
+        const url = `https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=${limit}&po=${po}&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=b:${encodeURIComponent(boardCode)}+f:!50&fields=f12,f14,f2,f3,f4,f5,f6,f7,f8,f9,f10,f15,f16,f17,f18`;
+        const resp = await fetch(url, { credentials: 'include' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const rows = (await resp.json())?.data?.diff || [];
+        return rows.map((r, i) => ({
+          rank: i + 1,
+          boardCode,
+          code: r.f12 || null,
+          name: r.f14 || null,
+          symbol: ((/^(6|5|9)/.test(String(r.f12 || '')) ? 'SH' : /^(4|8)/.test(String(r.f12 || '')) ? 'BJ' : 'SZ') + String(r.f12 || '')),
+          price: r.f2 ?? null,
+          changePercent: r.f3 ?? null,
+          changeAmount: r.f4 ?? null,
+          volume: r.f5 ?? null,
+          amount: r.f6 ?? null,
+          amplitude: r.f7 ?? null,
+          turnoverRate: r.f8 ?? null,
+          pe: r.f9 ?? null,
+          volumeRatio: r.f10 ?? null,
+          high: r.f15 ?? null,
+          low: r.f16 ?? null,
+          open: r.f17 ?? null,
+          prevClose: r.f18 ?? null,
+          source: 'eastmoney.push2.clist.get'
+        }));
+      })()
+
+columns: [rank, boardCode, symbol, name, price, changePercent, changeAmount, amount, turnoverRate, pe, volumeRatio]

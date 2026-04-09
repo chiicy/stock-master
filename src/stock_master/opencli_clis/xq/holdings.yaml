@@ -1,0 +1,41 @@
+site: xq
+name: holdings
+description: 获取雪球持仓列表（固定 category=2）
+domain: xueqiu.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+args:
+  limit:
+    type: int
+    default: 100
+    description: 返回数量，默认 100
+
+pipeline:
+  - navigate: https://xueqiu.com
+  - evaluate: |
+      (async () => {
+        const count = Math.max(1, Math.min(500, Number(${{ args.limit | json }} || 100)));
+        const url = `https://stock.xueqiu.com/v5/stock/portfolio/stock/list.json?size=${count}&category=2&pid=-1`;
+        const resp = await fetch(url, { credentials: 'include' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status + ' Hint: Not logged in?');
+        const d = await resp.json();
+        const rows = Array.isArray(d?.data?.stocks) ? d.data.stocks : [];
+        return rows.map((s, i) => ({
+          rank: i + 1,
+          category: 'holdings',
+          type: '2',
+          symbol: s.symbol || null,
+          code: s.symbol ? String(s.symbol).replace(/^[A-Z]+/, '') : null,
+          name: s.name || null,
+          current: s.current ?? null,
+          change: s.chg ?? null,
+          percent: s.percent ?? null,
+          volume: s.volume ?? null,
+          url: s.symbol ? 'https://xueqiu.com/S/' + s.symbol : null,
+          source: 'xueqiu.portfolio.stock.list'
+        }));
+      })()
+
+columns: [rank, symbol, name, current, percent, volume]

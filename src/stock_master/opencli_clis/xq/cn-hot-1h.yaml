@@ -1,0 +1,48 @@
+site: xq
+name: cn-hot-1h
+description: 获取雪球沪深 1 小时热股榜
+domain: xueqiu.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+args:
+  limit:
+    type: int
+    default: 20
+    description: 返回数量，默认 20，最大 100
+
+pipeline:
+  - navigate: https://xueqiu.com
+  - evaluate: |
+      (async () => {
+        const count = Math.max(1, Math.min(100, Number(${{ args.limit | json }} || 20)));
+        const url = `https://stock.xueqiu.com/v5/stock/hot_stock/list.json?size=${count}&_type=12&type=12&include=1`;
+        const resp = await fetch(url, { credentials: 'include' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status + ' Hint: Not logged in?');
+        const d = await resp.json();
+        const rows = Array.isArray(d?.data?.items) ? d.data.items : Array.isArray(d?.data) ? d.data : [];
+        return rows.map((r, i) => {
+          const s = r.stock || r;
+          return {
+            rank: i + 1,
+            market: 'cn',
+            window: '1h',
+            type: '12',
+            symbol: s.symbol || null,
+            code: s.symbol ? (() => { const sym = String(s.symbol); const m = sym.match(/^(?:SH|SZ|BJ|HK)(\d+)$/); return m ? m[1] : sym.replace(/^\./, ''); })() : null,
+            name: s.name || null,
+            current: s.current ?? null,
+            percent: s.percent ?? null,
+            change: s.chg ?? null,
+            marketCap: s.market_capital ?? null,
+            floatMarketCap: s.float_market_capital ?? null,
+            heat: r.value ?? r.follow7dIncrease ?? r.follow7d ?? r.follow ?? null,
+            rankChange: r.rank_change ?? null,
+            url: s.symbol ? 'https://xueqiu.com/S/' + s.symbol : null,
+            source: 'xueqiu.hot_stock.list'
+          };
+        });
+      })()
+
+columns: [rank, market, window, symbol, name, current, percent, change, marketCap, floatMarketCap, heat, rankChange]

@@ -1,0 +1,184 @@
+site: iwc
+name: query
+description: 同花顺问财自然语言选股查询
+domain: www.iwencai.com
+strategy: cookie
+browser: true
+navigateBefore: false
+
+args:
+  question:
+    type: str
+    required: true
+    description: 自然语言问句，例如“昨日触碰90日线且半导体行业”
+  page:
+    type: int
+    default: 1
+    description: 结果页码，从 1 开始
+  per_page:
+    type: int
+    default: 50
+    description: 每页条数
+  secondary_intent:
+    type: str
+    default: stock
+    description: 查询意图，默认 stock
+
+pipeline:
+  - navigate: https://www.iwencai.com/unifiedwap/chat
+
+  - evaluate: |
+      (async () => {
+        const question = (${{ args.question | json }} || '').trim();
+        const page = Number(${{ args.page | json }} || 1);
+        const per_page = Number(${{ args.per_page | json }} || 50);
+        const secondary_intent = (${{ args.secondary_intent | json }} || 'stock').trim() || 'stock';
+        if (!question) throw new Error('Missing argument: question');
+
+        const body = new URLSearchParams({
+          source: 'Ths_iwencai_Xuangu',
+          version: '2.0',
+          query_area: '',
+          block_list: '',
+          add_info: JSON.stringify({
+            urp: { scene: 1, company: 1, business: 1 },
+            contentType: 'json',
+            searchInfo: true,
+          }),
+          question,
+          perpage: String(per_page),
+          page: String(page),
+          secondary_intent,
+          log_info: JSON.stringify({ input_type: 'typewrite' }),
+        });
+
+        const userId = (
+          window.localStorage.getItem('userid') ||
+          window.localStorage.getItem('user_id') ||
+          window.localStorage.getItem('rsh') ||
+          window.sessionStorage.getItem('userid') ||
+          ''
+        ).toString().trim();
+        if (userId) body.set('rsh', userId);
+
+        const resp = await fetch('/unifiedwap/unified-wap/v2/result/get-robot-data', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'content-type': 'application/x-www-form-urlencoded; charset=UTF-8',
+          },
+          body: body.toString(),
+        });
+
+        if (!resp.ok) throw new Error('HTTP ' + resp.status + ' Hint: Not logged in or request rejected?');
+        const d = await resp.json();
+        if (d?.status_code !== 0) throw new Error('iwencai status_code=' + d?.status_code + ' msg=' + (d?.status_msg || 'unknown'));
+
+        const answer = d?.data?.answer?.[0] || {};
+        const components = answer?.txt?.[0]?.content?.components || [];
+        const tableComp = components.find(c => c?.show_type === 'xuangu_tableV1') || components.find(c => c?.data?.datas?.length);
+        const tableData = tableComp?.data || {};
+        const columns = tableData?.columns || [];
+        const rows = tableData?.datas || [];
+        const meta = {
+          question,
+          page,
+          per_page,
+          secondary_intent,
+          text_answer: answer?.text_answer || null,
+          hit_count: rows.length,
+          columns: columns.map(c => ({
+            key: c?.key || c?.label || c?.index_name,
+            name: c?.index_name || c?.label || c?.key,
+            type: c?.type || null,
+            unit: c?.unit || null,
+          })),
+        };
+
+        const friendlyMap = {
+          '股票代码': '代码',
+          '股票简称': '名称',
+          '最新价': '现价',
+          '最新涨跌幅': '涨跌幅',
+          '所属同花顺行业': '行业',
+          '所属概念': '概念',
+          '最新dde大单净额': 'DDE大单净额',
+          '总股本': '总股本',
+          '市盈率(pe)': '市盈率',
+          '买入信号inter': '买入信号',
+          '技术形态': '技术形态',
+        };
+        const formatPercent = (v) => {
+          if (v === null || v === undefined || v === '') return v;
+          const n = Number(v);
+          if (!Number.isFinite(n)) return v;
+          return `${n.toFixed(2)}%`;
+        };
+        const formatPrice = (v) => {
+          if (v === null || v === undefined || v === '') return v;
+          const n = Number(v);
+          if (!Number.isFinite(n)) return v;
+          return n.toFixed(2);
+        };
+        const formatAmount = (v) => {
+          if (v === null || v === undefined || v === '') return v;
+          const n = Number(v);
+          if (!Number.isFinite(n)) return v;
+          const abs = Math.abs(n);
+          if (abs >= 1e8) return `${(n / 1e8).toFixed(2)}亿`;
+          if (abs >= 1e4) return `${(n / 1e4).toFixed(2)}万`;
+          return n.toFixed(2);
+        };
+        const isPercentColumn = (name) => /涨跌幅|区间涨跌幅|涨幅|跌幅|振幅|换手率|收益率|回报率|前复权\(%\)|后复权\(%\)|\(%\)$/.test(String(name));
+        const isPriceColumn = (name) => /现价|最新价|价格|收盘价|开盘价|最高价|最低价/.test(String(name));
+        const isAmountColumn = (name) => /DDE大单净额|净额|金额|成交额|成交量|总股本|总市值|流通市值/.test(String(name));
+        const coreColumns = ['序号', '代码', '名称', '现价', '涨跌幅'];
+
+        const dynamicColumns = columns
+          .map(col => col?.index_name || col?.label || col?.key)
+          .filter(Boolean)
+          .map(name => friendlyMap[name] || name)
+          .filter(name => !coreColumns.includes(name));
+
+        const orderedColumns = [...coreColumns, ...dynamicColumns.filter((v, i, a) => a.indexOf(v) === i)];
+
+        const normalized = rows.map((row, idx) => {
+          const raw = {};
+          for (const col of columns) {
+            const key = col?.key || col?.label || col?.index_name;
+            const label = col?.index_name || col?.label || key;
+            let value = row?.[key];
+            if (value == null && key !== label) value = row?.[label];
+            if (Array.isArray(value)) value = value.join('; ');
+            if (isPercentColumn(label)) value = formatPercent(value);
+            else if (isPriceColumn(label)) value = formatPrice(value);
+            else if (isAmountColumn(label)) value = formatAmount(value);
+            raw[label] = value;
+          }
+
+          const out = {
+            '序号': idx + 1,
+            '代码': raw['股票代码'],
+            '名称': raw['股票简称'],
+            '现价': raw['最新价'],
+            '涨跌幅': raw['最新涨跌幅'],
+          };
+
+          for (const [rawName, friendlyName] of Object.entries(friendlyMap)) {
+            if (['代码', '名称', '现价', '涨跌幅'].includes(friendlyName)) continue;
+            if (raw[rawName] != null) out[friendlyName] = raw[rawName];
+          }
+
+          for (const [rawName, value] of Object.entries(raw)) {
+            const friendlyName = friendlyMap[rawName] || rawName;
+            if (friendlyName in out) continue;
+            out[friendlyName] = value;
+          }
+
+          out.__columns = orderedColumns.filter(c => c in out);
+          out.__meta = meta;
+          return out;
+        });
+
+        return normalized;
+      })()

@@ -1,0 +1,46 @@
+site: xq
+name: search
+description: 搜索雪球股票代码/名称
+domain: xueqiu.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+args:
+  query:
+    type: str
+    required: true
+    description: 股票名称/代码/拼音
+  limit:
+    type: int
+    default: 10
+    description: 返回数量，默认 10，最大 50
+
+pipeline:
+  - navigate: https://xueqiu.com
+  - evaluate: |
+      (async () => {
+        const query = (${{ args.query | json }} || '').trim();
+        const count = Math.max(1, Math.min(50, Number(${{ args.limit | json }} || 10)));
+        if (!query) throw new Error('Missing argument: query');
+        const url = `https://xueqiu.com/stock/search.json?code=${encodeURIComponent(query)}&size=${count}`;
+        const resp = await fetch(url, { credentials: 'include' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status + ' Hint: Not logged in?');
+        const d = await resp.json();
+        const rows = Array.isArray(d?.stocks) ? d.stocks : [];
+        return rows.map((r) => {
+          const symbol = r.code || r.symbol || null;
+          return {
+            symbol,
+            code: symbol ? String(symbol).replace(/^[A-Z]+/, '') : null,
+            name: r.name || null,
+            type: r.type || null,
+            market: r.market || null,
+            exchange: symbol ? String(symbol).replace(/(\d.*$)/,'') : null,
+            url: symbol ? 'https://xueqiu.com/S/' + symbol : null,
+            source: 'xueqiu.stock.search'
+          };
+        });
+      })()
+
+columns: [symbol, code, name, type, market]

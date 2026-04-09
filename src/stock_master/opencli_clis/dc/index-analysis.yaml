@@ -1,0 +1,106 @@
+site: dc
+name: index-analysis
+description: 基于东方财富指数实时+日线生成指数分析载荷
+domain: quote.eastmoney.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+args:
+  index:
+    type: str
+    default: sh000001
+    description: 指数标识，支持 sh000001 / sz399001 / 1.000001 / 0.399001 / 上证指数 / 深证成指 / 创业板指
+  days:
+    type: int
+    default: 120
+    description: 历史窗口，默认 120 日
+
+pipeline:
+  - navigate: https://quote.eastmoney.com/center/gridlist.html#hs_a_board
+  - evaluate: |
+      (async () => {
+        const raw = String(${{ args.index | json }} || 'sh000001').trim();
+        const days = Math.max(30, Math.min(2000, Number(${{ args.days | json }} || 120)));
+
+        const normalize = (s) => {
+          const x = s.trim().toLowerCase();
+          if (x === '上证指数' || x === 'sh000001' || x === '1.000001') return { secid: '1.000001', symbol: 'SH000001', nameHint: '上证指数' };
+          if (x === '深证成指' || x === 'sz399001' || x === '0.399001') return { secid: '0.399001', symbol: 'SZ399001', nameHint: '深证成指' };
+          if (x === '创业板指' || x === 'sz399006' || x === '0.399006') return { secid: '0.399006', symbol: 'SZ399006', nameHint: '创业板指' };
+          if (/^[01]\.\d{6}$/.test(x)) return { secid: x, symbol: (x.startsWith('1.') ? 'SH' : 'SZ') + x.slice(2), nameHint: null };
+          if (/^(sh|sz)\d{6}$/.test(x)) return { secid: (x.startsWith('sh') ? '1.' : '0.') + x.slice(2), symbol: x.toUpperCase(), nameHint: null };
+          throw new Error('Unsupported index: ' + s);
+        };
+
+        const idx = normalize(raw);
+        const quoteUrl = `https://push2.eastmoney.com/api/qt/stock/get?secid=${encodeURIComponent(idx.secid)}&ut=bd1d9ddb04089700cf9c27f6f7426281&invt=2&fltt=2&fields=f57,f58,f43,f44,f45,f46,f47,f48,f60,f116,f170,f171`;
+        const histUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${encodeURIComponent(idx.secid)}&ut=fa5fd1943c7b386f172d6893dbfba10b&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=0&beg=0&end=20500000&lmt=${days}`;
+
+        const [quoteResp, histResp] = await Promise.all([
+          fetch(quoteUrl, { credentials: 'include' }),
+          fetch(histUrl, { credentials: 'include' }),
+        ]);
+        if (!quoteResp.ok) throw new Error('quote HTTP ' + quoteResp.status);
+        if (!histResp.ok) throw new Error('history HTTP ' + histResp.status);
+
+        const q = (await quoteResp.json())?.data || {};
+        const h = (await histResp.json())?.data || {};
+        const lines = Array.isArray(h.klines) ? h.klines : [];
+        if (lines.length < 30) throw new Error('历史数据不足，至少需要 30 个交易日');
+
+        const rows = lines.map((line) => {
+          const [date, open, close, high, low, volume, amount, amp, pct, chg] = String(line).split(',');
+          return {
+            date,
+            open: Number(open),
+            close: Number(close),
+            high: Number(high),
+            low: Number(low),
+            volume: Number(volume),
+            amount: Number(amount),
+            amplitude: Number(amp),
+            percent: Number(pct),
+            change: Number(chg),
+          };
+        }).filter(r => Number.isFinite(r.close));
+
+        const closes = rows.map(r => r.close);
+        const highs = rows.map(r => r.high);
+        const lows = rows.map(r => r.low);
+        const sma = (arr, len) => arr.length < len ? null : arr.slice(-len).reduce((a,b)=>a+b,0)/len;
+        const hh = (arr, len) => arr.length < len ? null : Math.max(...arr.slice(-len));
+        const ll = (arr, len) => arr.length < len ? null : Math.min(...arr.slice(-len));
+        const n = (v, digits = 4) => (v == null || !Number.isFinite(v)) ? null : Number(v.toFixed(digits));
+
+        const last = closes.at(-1);
+        const ma5 = sma(closes, 5), ma10 = sma(closes, 10), ma20 = sma(closes, 20), ma60 = sma(closes, 60), ma120 = sma(closes, 120);
+        const high20 = hh(highs, 20), low20 = ll(lows, 20), high60 = hh(highs, 60), low60 = ll(lows, 60);
+        const trend = (last != null && ma20 != null && ma60 != null) ? (last > ma20 && ma20 > ma60 ? 'up' : last < ma20 && ma20 < ma60 ? 'down' : 'mixed') : 'mixed';
+        const pos20 = (last != null && high20 != null && low20 != null && high20 !== low20) ? ((last - low20) / (high20 - low20) * 100) : null;
+
+        return [{
+          symbol: idx.symbol,
+          secid: idx.secid,
+          name: q.f58 || h.name || idx.nameHint,
+          current: q.f43 ?? rows.at(-1)?.close ?? null,
+          changePercent: q.f170 ?? rows.at(-1)?.percent ?? null,
+          amplitude: q.f171 ?? rows.at(-1)?.amplitude ?? null,
+          open: q.f46 ?? rows.at(-1)?.open ?? null,
+          high: q.f44 ?? rows.at(-1)?.high ?? null,
+          low: q.f45 ?? rows.at(-1)?.low ?? null,
+          prevClose: q.f60 ?? null,
+          amount: q.f48 ?? rows.at(-1)?.amount ?? null,
+          marketCap: q.f116 ?? null,
+          ma5: n(ma5), ma10: n(ma10), ma20: n(ma20), ma60: n(ma60), ma120: n(ma120),
+          high20: n(high20), low20: n(low20), high60: n(high60), low60: n(low60),
+          positionIn20dRange: n(pos20, 2),
+          trendBias: trend,
+          historyWindowDays: rows.length,
+          sourceQuoteUrl: quoteUrl,
+          sourceHistoryUrl: histUrl,
+          source: 'eastmoney.push2.stock.get + push2his.kline.get'
+        }];
+      })()
+
+columns: [symbol, name, current, changePercent, amplitude, ma5, ma10, ma20, ma60, ma120, high20, low20, high60, low60, positionIn20dRange, trendBias, historyWindowDays]

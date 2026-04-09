@@ -1,0 +1,84 @@
+site: dc
+name: history
+description: 获取东方财富单股/指数日线历史
+domain: quote.eastmoney.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+args:
+  symbol:
+    type: str
+    required: true
+    description: 标的代码，支持 SH600519 / SZ000001 / BJ430047 / SH000001 / SZ399001 / 1.600519 / 0.399001 / BK1320
+  days:
+    type: int
+    default: 60
+    description: 返回最近多少天，默认 60，最大 2000
+  adjust:
+    type: str
+    default: none
+    description: 复权方式：none / qfq / hfq（指数与板块通常等效为 none）
+
+pipeline:
+  - navigate: https://quote.eastmoney.com/center/gridlist.html#hs_a_board
+  - evaluate: |
+      (async () => {
+        const raw = String(${{ args.symbol | json }} || '').trim();
+        const days = Math.max(5, Math.min(2000, Number(${{ args.days | json }} || 60)));
+        const adjust = String(${{ args.adjust | json }} || 'none').trim().toLowerCase();
+        if (!raw) throw new Error('Missing argument: symbol');
+
+        const normalize = (s) => {
+          const x = s.trim().toUpperCase();
+          if (/^BK\d{4,}$/.test(x)) return { secid: `90.${x}`, symbol: x, kind: 'board' };
+          if (/^[01]\.(\d{6}|BK\d{4,})$/.test(x)) return { secid: x, symbol: x.startsWith('1.') ? 'SH' + x.slice(2) : x.startsWith('0.') ? 'SZ' + x.slice(2) : x, kind: /^\d\.BK/.test(x) ? 'board' : 'security' };
+          if (/^(SH|SZ|BJ)\d{6}$/.test(x)) {
+            const code = x.slice(2);
+            if (x.startsWith('SH')) return { secid: `1.${code}`, symbol: x, kind: /^000/.test(code) ? 'index' : 'security' };
+            if (x.startsWith('SZ')) return { secid: `0.${code}`, symbol: x, kind: /^(399)/.test(code) ? 'index' : 'security' };
+            if (x.startsWith('BJ')) return { secid: `0.${code}`, symbol: x, kind: 'security' };
+          }
+          if (/^\d{6}$/.test(x)) {
+            if (/^(5|6|9)/.test(x)) return { secid: `1.${x}`, symbol: `SH${x}`, kind: /^000/.test(x) ? 'index' : 'security' };
+            if (/^(399)/.test(x)) return { secid: `0.${x}`, symbol: `SZ${x}`, kind: 'index' };
+            if (/^(4|8)/.test(x)) return { secid: `0.${x}`, symbol: `BJ${x}`, kind: 'security' };
+            return { secid: `0.${x}`, symbol: `SZ${x}`, kind: 'security' };
+          }
+          throw new Error('Unsupported symbol: ' + s);
+        };
+
+        const item = normalize(raw);
+        const fqtMap = { none: 0, qfq: 1, hfq: 2 };
+        const fqt = fqtMap[adjust] ?? 0;
+        const histUrl = `https://push2his.eastmoney.com/api/qt/stock/kline/get?secid=${encodeURIComponent(item.secid)}&ut=fa5fd1943c7b386f172d6893dbfba10b&fields1=f1,f2,f3,f4,f5,f6&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61&klt=101&fqt=${fqt}&beg=0&end=20500000&lmt=${days}`;
+        const resp = await fetch(histUrl, { credentials: 'include' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const json = await resp.json();
+        const data = json?.data || {};
+        const lines = Array.isArray(data.klines) ? data.klines : [];
+        return lines.map((line) => {
+          const [date, open, close, high, low, volume, amount, amplitude, percent, change, turnover] = String(line).split(',');
+          return {
+            symbol: item.symbol,
+            secid: item.secid,
+            kind: item.kind,
+            name: data.name || null,
+            date,
+            open: open == null ? null : Number(open),
+            close: close == null ? null : Number(close),
+            high: high == null ? null : Number(high),
+            low: low == null ? null : Number(low),
+            volume: volume == null ? null : Number(volume),
+            amount: amount == null ? null : Number(amount),
+            amplitude: amplitude == null ? null : Number(amplitude),
+            percent: percent == null ? null : Number(percent),
+            change: change == null ? null : Number(change),
+            turnoverRate: turnover == null ? null : Number(turnover),
+            adjust,
+            source: 'eastmoney.push2his.kline.get'
+          };
+        });
+      })()
+
+columns: [date, symbol, name, open, close, high, low, percent, change, volume, amount, turnoverRate]

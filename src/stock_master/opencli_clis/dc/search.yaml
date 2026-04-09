@@ -1,0 +1,39 @@
+site: dc
+name: search
+description: 搜索东方财富股票代码/名称，返回 secid 等标识
+domain: searchapi.eastmoney.com
+browser: false
+strategy: public
+
+args:
+  query:
+    type: str
+    required: true
+    description: 股票名称/代码/拼音，如 茅台、600519、GZMT
+  limit:
+    type: int
+    default: 10
+    description: 返回数量，默认 10，最大 20
+
+pipeline:
+  - fetch:
+      url: https://searchapi.eastmoney.com/api/suggest/get
+      params:
+        input: ${{ args.query }}
+        type: 14
+        token: D43BF722C8E33BDC906FB84D85E326E8
+        count: ${{ Math.max(1, Math.min(20, Number(args.limit || 10))) }}
+  - select: QuotationCodeTable.Data
+  - map:
+      symbol: >-
+        ${{ (() => { const market = String(item.MarketType || item.MktNum || ''); const code = item.Code || item.UnifiedCode || null; const ex = market === '1' ? 'SH' : market === '0' ? 'SZ' : market === '2' ? 'BJ' : null; return ex && code ? ex + code : code; })() }}
+      code: ${{ item.Code || item.UnifiedCode || null }}
+      name: ${{ item.Name || null }}
+      pinyin: ${{ item.PinYin || null }}
+      classify: ${{ item.Classify || null }}
+      securityTypeName: ${{ item.SecurityTypeName || null }}
+      secid: >-
+        ${{ (() => { const market = String(item.MarketType || item.MktNum || ''); const code = item.Code || item.UnifiedCode || null; return item.QuoteID || (market && code ? `${market}.${code}` : null); })() }}
+  - limit: ${{ Math.max(1, Math.min(20, Number(args.limit || 10))) }}
+
+columns: [symbol, code, name, pinyin, classify, securityTypeName, secid]

@@ -1,0 +1,37 @@
+site: dc
+name: _probe_stock
+description: probe eastmoney single-stock endpoint
+domain: quote.eastmoney.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+args:
+  secid:
+    type: str
+    default: 1.600519
+    description: 东财 secid，如 1.600519 / 0.000001
+
+pipeline:
+  - navigate: https://quote.eastmoney.com/concept/sh603777.html
+  - evaluate: |
+      (async () => {
+        const secid = (${{ args.secid | json }} || '1.600519').trim();
+        const candidates = [
+          `https://push2.eastmoney.com/api/qt/stock/get?secid=${encodeURIComponent(secid)}&ut=bd1d9ddb04089700cf9c27f6f7426281&invt=2&fltt=2&fields=f57,f58,f43,f44,f45,f46,f47,f48,f49,f50,f51,f52,f60,f169,f170,f171,f168,f116,f117,f164,f163,f162,f167,f15,f16,f17,f18,f20,f21,f137,f193,f194,f195,f196,f197,f198` ,
+          `https://push2.eastmoney.com/api/qt/stock/get?secid=${encodeURIComponent(secid)}&ut=b2884a393a59ad64002292a3e90d46a5&invt=2&fltt=2&fields=f57,f58,f43,f44,f45,f46,f47,f48,f49,f50,f51,f52,f60,f169,f170,f171,f168,f116,f117,f164,f163,f162,f167,f15,f16,f17,f18,f20,f21,f137,f193,f194,f195,f196,f197,f198`
+        ];
+        const out = [];
+        for (const url of candidates) {
+          try {
+            const resp = await fetch(url, { credentials: 'include' });
+            const text = await resp.text();
+            let json = null;
+            try { json = JSON.parse(text); } catch {}
+            out.push({ url, ok: resp.ok, status: resp.status, sample: text.slice(0, 500), keys: json?.data ? Object.keys(json.data).slice(0, 50) : null });
+          } catch (e) {
+            out.push({ url, error: String(e) });
+          }
+        }
+        return out;
+      })()

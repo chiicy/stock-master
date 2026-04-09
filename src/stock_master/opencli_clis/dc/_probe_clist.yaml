@@ -1,0 +1,43 @@
+site: dc
+name: _probe_clist
+description: probe eastmoney clist endpoint
+domain: quote.eastmoney.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+args:
+  limit:
+    type: int
+    default: 10
+
+pipeline:
+  - navigate: https://quote.eastmoney.com/center/gridlist.html#hs_a_board
+  - evaluate: |
+      (async () => {
+        const limit = Math.max(1, Math.min(100, Number(${{ args.limit | json }} || 10)));
+        const candidates = [
+          `https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=${limit}&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f12,f14,f2,f3,f4,f5,f6,f7,f8,f9,f10,f15,f16,f17,f18`,
+          `https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=${limit}&po=1&np=1&ut=b2884a393a59ad64002292a3e90d46a5&fltt=2&invt=2&fid=f3&fs=m:0+t:6,m:0+t:80,m:1+t:2,m:1+t:23&fields=f12,f14,f2,f3,f4,f5,f6,f7,f8,f9,f10,f15,f16,f17,f18`
+        ];
+        const out = [];
+        for (const url of candidates) {
+          try {
+            const resp = await fetch(url, { credentials: 'include' });
+            const text = await resp.text();
+            let json = null;
+            try { json = JSON.parse(text); } catch {}
+            out.push({
+              url,
+              ok: resp.ok,
+              status: resp.status,
+              sample: text.slice(0, 400),
+              total: json?.data?.total ?? null,
+              diff_len: Array.isArray(json?.data?.diff) ? json.data.diff.length : null
+            });
+          } catch (e) {
+            out.push({ url, error: String(e) });
+          }
+        }
+        return out;
+      })()

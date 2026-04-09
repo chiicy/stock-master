@@ -1,0 +1,30 @@
+site: dc
+name: _probe_flow
+description: probe eastmoney north/sector flow endpoints
+domain: quote.eastmoney.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+pipeline:
+  - navigate: https://quote.eastmoney.com/center/gridlist.html#hs_a_board
+  - evaluate: |
+      (async () => {
+        const urls = [
+          'https://push2.eastmoney.com/api/qt/kamt/get?fields1=f1,f2,f3,f4&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63',
+          'https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=1.600519&lmt=10&klt=101&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63'
+        ];
+        const out = [];
+        for (const url of urls) {
+          try {
+            const resp = await fetch(url, { credentials: 'include' });
+            const text = await resp.text();
+            let json = null;
+            try { json = JSON.parse(text); } catch {}
+            out.push({ url, ok: resp.ok, status: resp.status, sample: text.slice(0, 500), keys: json?.data ? Object.keys(json.data).slice(0, 30) : null, klines: json?.data?.klines?.length ?? null, trends: json?.data?.trends?.length ?? null });
+          } catch (e) {
+            out.push({ url, error: String(e) });
+          }
+        }
+        return out;
+      })()

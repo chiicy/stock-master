@@ -1,0 +1,32 @@
+site: dc
+name: _probe_search
+description: probe eastmoney search/suggest endpoints
+domain: searchapi.eastmoney.com
+browser: false
+strategy: public
+
+args:
+  query:
+    type: str
+    required: true
+  limit:
+    type: int
+    default: 5
+
+pipeline:
+  - fetch:
+      url: https://searchapi.eastmoney.com/api/suggest/get
+      params:
+        input: ${{ args.query }}
+        type: 14
+        token: D43BF722C8E33BDC906FB84D85E326E8
+        count: ${{ Math.max(1, Math.min(20, Number(args.limit || 5))) }}
+  - map:
+      url: https://searchapi.eastmoney.com/api/suggest/get
+      status: ${{ item.QuotationCodeTable?.Status ?? null }}
+      message: ${{ item.QuotationCodeTable?.Message ?? null }}
+      totalCount: ${{ item.QuotationCodeTable?.TotalCount ?? 0 }}
+      sampleCode: ${{ item.QuotationCodeTable?.Data?.[0]?.Code ?? null }}
+      sampleName: ${{ item.QuotationCodeTable?.Data?.[0]?.Name ?? null }}
+
+columns: [url, status, message, totalCount, sampleCode, sampleName]

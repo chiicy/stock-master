@@ -1,0 +1,112 @@
+site: xq
+name: snapshot
+description: 获取雪球单股扩展快照，面向分析载荷而非仅展示
+domain: xueqiu.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+args:
+  symbol:
+    type: str
+    required: true
+    description: 股票代码，如 SH600519、SZ000001、BJ430047
+
+pipeline:
+  - navigate: https://xueqiu.com
+
+  - evaluate: |
+      (async () => {
+        const raw = (${{ args.symbol | json }} || '').trim().toUpperCase();
+        if (!raw) throw new Error('Missing argument: symbol');
+
+        const normalize = (s) => {
+          const m = s.match(/^(SH|SZ|BJ)?(\d{6})$/i);
+          if (m) {
+            const ex = (m[1] || (/^(5|6|9)/.test(m[2]) ? 'SH' : /^(4|8)/.test(m[2]) ? 'BJ' : 'SZ')).toUpperCase();
+            return ex + m[2];
+          }
+          return s.toUpperCase();
+        };
+
+        const symbol = normalize(raw);
+        const resp = await fetch(`https://stock.xueqiu.com/v5/stock/batch/quote.json?symbol=${encodeURIComponent(symbol)}`, {
+          credentials: 'include'
+        });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status + ' Hint: Not logged in?');
+
+        const d = await resp.json();
+        const item = d?.data?.items?.[0];
+        const q = item?.quote || {};
+        const m = item?.market || {};
+        if (!q.symbol) throw new Error('未找到股票: ' + symbol);
+
+        const num = (v, digits = 4) => {
+          if (v == null || v === '') return null;
+          const n = Number(v);
+          return Number.isFinite(n) ? Number(n.toFixed(digits)) : null;
+        };
+
+        return [{
+          symbol: q.symbol,
+          code: String(q.symbol || '').replace(/^[A-Z]+/, ''),
+          name: q.name || null,
+          exchange: q.exchange || null,
+          currency: q.currency || null,
+          current: num(q.current),
+          change: num(q.chg),
+          percent: num(q.percent, 2),
+          open: num(q.open),
+          high: num(q.high),
+          low: num(q.low),
+          prev_close: num(q.last_close),
+          avg_price: num(q.avg_price),
+          amplitude: num(q.amplitude, 2),
+          volume: q.volume ?? null,
+          amount: q.amount ?? null,
+          turnover_rate: num(q.turnover_rate, 2),
+          market_capital: q.market_capital ?? null,
+          float_market_capital: q.float_market_capital ?? null,
+          total_shares: q.total_shares ?? null,
+          float_shares: q.float_shares ?? null,
+          limit_up: num(q.limit_up),
+          limit_down: num(q.limit_down),
+          pe_ttm: num(q.pe_ttm, 2),
+          pe_forecast: num(q.pe_forecast, 2),
+          pb: num(q.pb, 2),
+          ps_ttm: num(q.ps_ttm, 2),
+          dividend_yield: num(q.dividend_yield, 2),
+          beta: num(q.beta, 4),
+          eps: num(q.eps, 4),
+          bvps: num(q.bvps, 4),
+          navps: num(q.navps, 4),
+          profit: q.profit ?? null,
+          timestamp: q.timestamp || null,
+          current_year_percent: num(q.current_year_percent, 2),
+          market_status: m.status || null,
+          raw_quote_keys: Object.keys(q).sort(),
+          url: 'https://xueqiu.com/S/' + q.symbol
+        }];
+      })()
+
+  - map:
+      symbol: ${{ item.symbol }}
+      code: ${{ item.code }}
+      name: ${{ item.name }}
+      current: ${{ item.current }}
+      percent: ${{ item.percent }}
+      open: ${{ item.open }}
+      high: ${{ item.high }}
+      low: ${{ item.low }}
+      prev_close: ${{ item.prev_close }}
+      volume: ${{ item.volume }}
+      amount: ${{ item.amount }}
+      turnover_rate: ${{ item.turnover_rate }}
+      pe_ttm: ${{ item.pe_ttm }}
+      pb: ${{ item.pb }}
+      market_capital: ${{ item.market_capital }}
+      float_market_capital: ${{ item.float_market_capital }}
+      current_year_percent: ${{ item.current_year_percent }}
+      timestamp: ${{ item.timestamp }}
+
+columns: [symbol, code, name, current, percent, open, high, low, prev_close, volume, amount, turnover_rate, pe_ttm, pb, market_capital, float_market_capital, current_year_percent, timestamp]

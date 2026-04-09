@@ -1,0 +1,38 @@
+site: dc
+name: _probe_board_flow
+description: probe eastmoney board quote/flow endpoints
+domain: quote.eastmoney.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+args:
+  board_code:
+    type: str
+    default: BK1320
+
+pipeline:
+  - navigate: https://quote.eastmoney.com/center/gridlist.html#hs_a_board
+  - evaluate: |
+      (async () => {
+        const boardCode = String(${{ args.board_code | json }} || 'BK1320').trim().toUpperCase();
+        const secidCandidates = [`90.${boardCode}`, `90.${boardCode.replace(/^BK/, '')}`, `0.${boardCode}`, `1.${boardCode}`];
+        const out = [];
+        for (const secid of secidCandidates) {
+          for (const url of [
+            `https://push2.eastmoney.com/api/qt/stock/get?secid=${encodeURIComponent(secid)}&ut=bd1d9ddb04089700cf9c27f6f7426281&invt=2&fltt=2&fields=f57,f58,f43,f44,f45,f46,f47,f48,f60,f170,f171`,
+            `https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${encodeURIComponent(secid)}&lmt=10&klt=101&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63`
+          ]) {
+            try {
+              const resp = await fetch(url, { credentials: 'include' });
+              const text = await resp.text();
+              let json = null;
+              try { json = JSON.parse(text); } catch {}
+              out.push({ secid, url, ok: resp.ok, status: resp.status, sample: text.slice(0, 320), keys: json?.data ? Object.keys(json.data).slice(0, 20) : null, klines: json?.data?.klines?.length ?? null });
+            } catch (e) {
+              out.push({ secid, url, error: String(e) });
+            }
+          }
+        }
+        return out;
+      })()

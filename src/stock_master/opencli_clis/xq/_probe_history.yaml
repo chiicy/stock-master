@@ -1,0 +1,38 @@
+site: xq
+name: _probe_history
+description: probe xueqiu history endpoint
+domain: xueqiu.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+args:
+  symbol:
+    type: str
+    required: true
+
+pipeline:
+  - navigate: https://xueqiu.com
+  - evaluate: |
+      (async () => {
+        const raw = (${{ args.symbol | json }} || '').trim().toUpperCase();
+        const symbol = /^(SH|SZ|BJ)\d{6}$/.test(raw) ? raw : (/^\d{6}$/.test(raw) ? ((/^(5|6|9)/.test(raw) ? 'SH' : /^(4|8)/.test(raw) ? 'BJ' : 'SZ') + raw) : raw);
+        const candidates = [
+          `https://stock.xueqiu.com/v5/stock/chart/kline.json?symbol=${encodeURIComponent(symbol)}&begin=${Date.now()}&period=day&type=before&count=-30&indicator=kline,pe,pb,ps,pcf,market_capital,agt,ggt,balance`,
+          `https://stock.xueqiu.com/v5/stock/chart/kline.json?symbol=${encodeURIComponent(symbol)}&begin=${Date.now()}&period=day&type=before&count=-30&indicator=kline`,
+          `https://stock.xueqiu.com/v5/stock/chart/kline.json?symbol=${encodeURIComponent(symbol)}&begin=${Date.now()}&period=day&type=before&count=30&indicator=kline`
+        ];
+        const out = [];
+        for (const url of candidates) {
+          try {
+            const resp = await fetch(url, { credentials: 'include' });
+            const text = await resp.text();
+            let json = null;
+            try { json = JSON.parse(text); } catch {}
+            out.push({ url, ok: resp.ok, status: resp.status, sample: text.slice(0, 400), has_data: !!json?.data, keys: json?.data ? Object.keys(json.data) : null });
+          } catch (e) {
+            out.push({ url, error: String(e) });
+          }
+        }
+        return out;
+      })()

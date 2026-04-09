@@ -1,0 +1,57 @@
+site: dc
+name: stock-flow
+description: 获取东方财富单股主力资金日线流向
+domain: quote.eastmoney.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+args:
+  symbol:
+    type: str
+    required: true
+    description: 股票代码，如 SH600519、SZ000001、BJ430047 或 600519
+  days:
+    type: int
+    default: 20
+    description: 返回最近多少天，默认 20，最大 120
+
+pipeline:
+  - navigate: https://quote.eastmoney.com/center/gridlist.html#hs_a_board
+  - evaluate: |
+      (async () => {
+        const raw = (${{ args.symbol | json }} || '').trim().toUpperCase();
+        const days = Math.max(1, Math.min(120, Number(${{ args.days | json }} || 20)));
+        if (!raw) throw new Error('Missing argument: symbol');
+        const normalize = (s) => {
+          const m = s.match(/^(SH|SZ|BJ)?(\d{6})$/i);
+          if (!m) throw new Error('Unsupported symbol: ' + s);
+          const code = m[2];
+          const ex = (m[1] || (/^(5|6|9)/.test(code) ? 'SH' : /^(4|8)/.test(code) ? 'BJ' : 'SZ')).toUpperCase();
+          const market = ex === 'SH' ? '1' : '0';
+          return { symbol: ex + code, code, secid: `${market}.${code}` };
+        };
+        const x = normalize(raw);
+        const url = `https://push2.eastmoney.com/api/qt/stock/fflow/kline/get?secid=${encodeURIComponent(x.secid)}&lmt=${days}&klt=101&fields1=f1,f2,f3,f7&fields2=f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61,f62,f63`;
+        const resp = await fetch(url, { credentials: 'include' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const d = (await resp.json())?.data || {};
+        const lines = Array.isArray(d.klines) ? d.klines : [];
+        return lines.map((line) => {
+          const [date, mainNetInflow, smallNetInflow, mediumNetInflow, largeNetInflow, superLargeNetInflow] = String(line).split(',');
+          return {
+            symbol: x.symbol,
+            code: x.code,
+            name: d.name || null,
+            date,
+            mainNetInflow: mainNetInflow == null ? null : Number(mainNetInflow),
+            smallNetInflow: smallNetInflow == null ? null : Number(smallNetInflow),
+            mediumNetInflow: mediumNetInflow == null ? null : Number(mediumNetInflow),
+            largeNetInflow: largeNetInflow == null ? null : Number(largeNetInflow),
+            superLargeNetInflow: superLargeNetInflow == null ? null : Number(superLargeNetInflow),
+            source: 'eastmoney.push2.stock.fflow.kline.get'
+          };
+        });
+      })()
+
+columns: [date, symbol, name, mainNetInflow, smallNetInflow, mediumNetInflow, largeNetInflow, superLargeNetInflow]

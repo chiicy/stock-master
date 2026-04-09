@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stock-master"
+version = "0.2.1"
+description = "Stock analysis and datasource toolkit used by the stock-master Hermes skill"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+  { name = "Hermes Agent" }
+]
+license = { text = "MIT" }
+dependencies = [
+  "akshare",
+  "adata",
+  "baostock",
+]
+keywords = ["stocks", "a-share", "analysis", "akshare", "baostock"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+]
+
+[project.scripts]
+stock-master-analyze = "stock_master.analysis.cli:main"
+stock-master-datasource = "stock_master.cli:diagnostics_main"
+stock-master-install-opencli = "stock_master.opencli_installer:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["stock_master*"]
+
+[tool.setuptools.package-data]
+stock_master = ["opencli_clis/**/*.yaml"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

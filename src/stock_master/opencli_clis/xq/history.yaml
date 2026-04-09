@@ -1,0 +1,85 @@
+site: xq
+name: history
+description: 获取雪球单股日线历史，可附带估值与陆港股通字段
+domain: xueqiu.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+args:
+  symbol:
+    type: str
+    required: true
+    description: 股票代码，如 SH600519、SZ000001、BJ430047
+  days:
+    type: int
+    default: 60
+    description: 返回最近多少个交易日，默认 60
+
+pipeline:
+  - navigate: https://xueqiu.com
+
+  - evaluate: |
+      (async () => {
+        const raw = (${{ args.symbol | json }} || '').trim().toUpperCase();
+        const days = Math.max(5, Math.min(3650, Number(${{ args.days | json }} || 60)));
+        if (!raw) throw new Error('Missing argument: symbol');
+
+        const normalize = (s) => {
+          const m = s.match(/^(SH|SZ|BJ)?(\d{6})$/i);
+          if (m) {
+            const ex = (m[1] || (/^(5|6|9)/.test(m[2]) ? 'SH' : /^(4|8)/.test(m[2]) ? 'BJ' : 'SZ')).toUpperCase();
+            return ex + m[2];
+          }
+          return s.toUpperCase();
+        };
+
+        const symbol = normalize(raw);
+        const url = `https://stock.xueqiu.com/v5/stock/chart/kline.json?symbol=${encodeURIComponent(symbol)}&begin=${Date.now()}&period=day&type=before&count=-${days}&indicator=kline,pe,pb,ps,pcf,market_capital,agt,ggt,balance`;
+        const resp = await fetch(url, { credentials: 'include' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status + ' Hint: Not logged in?');
+
+        const d = await resp.json();
+        const cols = d?.data?.column || [];
+        const rows = d?.data?.item || [];
+        if (!Array.isArray(cols) || !Array.isArray(rows)) throw new Error('历史数据结构异常');
+
+        const num = (v, digits = 4) => {
+          if (v == null || v === '') return null;
+          const n = Number(v);
+          return Number.isFinite(n) ? Number(n.toFixed(digits)) : null;
+        };
+
+        return rows.map((arr) => {
+          const obj = {};
+          cols.forEach((c, i) => { obj[c] = arr[i]; });
+          return {
+            symbol,
+            timestamp: obj.timestamp ?? null,
+            date: obj.timestamp ? new Date(obj.timestamp).toISOString().slice(0, 10) : null,
+            open: num(obj.open),
+            high: num(obj.high),
+            low: num(obj.low),
+            close: num(obj.close),
+            change: num(obj.chg),
+            percent: num(obj.percent, 2),
+            volume: obj.volume ?? null,
+            amount: obj.amount ?? null,
+            turnoverrate: num(obj.turnoverrate, 2),
+            pe: num(obj.pe, 2),
+            pb: num(obj.pb, 2),
+            ps: num(obj.ps, 2),
+            pcf: num(obj.pcf, 2),
+            market_capital: obj.market_capital ?? null,
+            balance: obj.balance ?? null,
+            hold_volume_cn: obj.hold_volume_cn ?? null,
+            hold_ratio_cn: num(obj.hold_ratio_cn, 4),
+            net_volume_cn: obj.net_volume_cn ?? null,
+            hold_volume_hk: obj.hold_volume_hk ?? null,
+            hold_ratio_hk: num(obj.hold_ratio_hk, 4),
+            net_volume_hk: obj.net_volume_hk ?? null
+          };
+        });
+      })()
+
+columns: [date, open, high, low, close, percent, volume, amount, turnoverrate, pe, pb, ps, pcf, market_capital]

@@ -1,0 +1,145 @@
+site: xq
+name: analysis
+description: 基于雪球 quote + history 生成单股分析载荷
+domain: xueqiu.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+args:
+  symbol:
+    type: str
+    required: true
+    description: 股票代码，如 SH600519、SZ000001、BJ430047
+  days:
+    type: int
+    default: 60
+    description: 历史窗口，默认 60 日
+
+pipeline:
+  - navigate: https://xueqiu.com
+
+  - evaluate: |
+      (async () => {
+        const raw = (${{ args.symbol | json }} || '').trim().toUpperCase();
+        const days = Math.max(30, Math.min(3650, Number(${{ args.days | json }} || 60)));
+        if (!raw) throw new Error('Missing argument: symbol');
+
+        const normalize = (s) => {
+          const m = s.match(/^(SH|SZ|BJ)?(\d{6})$/i);
+          if (m) {
+            const ex = (m[1] || (/^(5|6|9)/.test(m[2]) ? 'SH' : /^(4|8)/.test(m[2]) ? 'BJ' : 'SZ')).toUpperCase();
+            return ex + m[2];
+          }
+          return s.toUpperCase();
+        };
+        const symbol = normalize(raw);
+
+        const quoteUrl = `https://stock.xueqiu.com/v5/stock/batch/quote.json?symbol=${encodeURIComponent(symbol)}`;
+        const histUrl = `https://stock.xueqiu.com/v5/stock/chart/kline.json?symbol=${encodeURIComponent(symbol)}&begin=${Date.now()}&period=day&type=before&count=-${days}&indicator=kline,pe,pb,ps,pcf,market_capital,agt,ggt,balance`;
+
+        const [quoteResp, histResp] = await Promise.all([
+          fetch(quoteUrl, { credentials: 'include' }),
+          fetch(histUrl, { credentials: 'include' }),
+        ]);
+        if (!quoteResp.ok) throw new Error('quote HTTP ' + quoteResp.status);
+        if (!histResp.ok) throw new Error('history HTTP ' + histResp.status);
+
+        const quoteJson = await quoteResp.json();
+        const histJson = await histResp.json();
+        const item = quoteJson?.data?.items?.[0];
+        const q = item?.quote || {};
+        const cols = histJson?.data?.column || [];
+        const rows = histJson?.data?.item || [];
+        if (!q.symbol) throw new Error('未找到股票: ' + symbol);
+        if (!Array.isArray(cols) || !Array.isArray(rows) || rows.length < 30) throw new Error('历史数据不足，至少需要 30 个交易日');
+
+        const n = (v, digits = 4) => {
+          if (v == null || v === '') return null;
+          const x = Number(v);
+          return Number.isFinite(x) ? Number(x.toFixed(digits)) : null;
+        };
+        const asObj = rows.map(arr => {
+          const o = {};
+          cols.forEach((c, i) => { o[c] = arr[i]; });
+          return o;
+        });
+        const closes = asObj.map(r => Number(r.close)).filter(Number.isFinite);
+        const highs = asObj.map(r => Number(r.high)).filter(Number.isFinite);
+        const lows = asObj.map(r => Number(r.low)).filter(Number.isFinite);
+        const vols = asObj.map(r => Number(r.volume)).filter(Number.isFinite);
+        const amts = asObj.map(r => Number(r.amount)).filter(Number.isFinite);
+
+        const sma = (arr, len) => {
+          if (arr.length < len) return null;
+          const slice = arr.slice(-len);
+          return slice.reduce((a, b) => a + b, 0) / len;
+        };
+        const hh = (arr, len) => arr.length < len ? null : Math.max(...arr.slice(-len));
+        const ll = (arr, len) => arr.length < len ? null : Math.min(...arr.slice(-len));
+
+        const lastClose = closes.at(-1);
+        const ma5 = sma(closes, 5);
+        const ma10 = sma(closes, 10);
+        const ma20 = sma(closes, 20);
+        const ma60 = sma(closes, 60);
+        const avgVol5 = sma(vols, 5);
+        const avgVol20 = sma(vols, 20);
+        const avgAmt5 = sma(amts, 5);
+        const high20 = hh(highs, 20);
+        const low20 = ll(lows, 20);
+        const high60 = hh(highs, 60);
+        const low60 = ll(lows, 60);
+
+        const trend = (() => {
+          if (lastClose != null && ma20 != null && ma60 != null) {
+            if (lastClose > ma20 && ma20 > ma60) return 'up';
+            if (lastClose < ma20 && ma20 < ma60) return 'down';
+          }
+          return 'mixed';
+        })();
+
+        const position20 = (lastClose != null && high20 != null && low20 != null && high20 !== low20)
+          ? (lastClose - low20) / (high20 - low20)
+          : null;
+
+        return [{
+          symbol: q.symbol,
+          code: String(q.symbol || '').replace(/^[A-Z]+/, ''),
+          name: q.name || null,
+          current: n(q.current),
+          change: n(q.chg),
+          percent: n(q.percent, 2),
+          open: n(q.open),
+          high: n(q.high),
+          low: n(q.low),
+          prev_close: n(q.last_close),
+          volume: q.volume ?? null,
+          amount: q.amount ?? null,
+          turnover_rate: n(q.turnover_rate, 2),
+          pe_ttm: n(q.pe_ttm, 2),
+          pb: n(q.pb, 2),
+          market_capital: q.market_capital ?? null,
+          float_market_capital: q.float_market_capital ?? null,
+          current_year_percent: n(q.current_year_percent, 2),
+          ma5: n(ma5),
+          ma10: n(ma10),
+          ma20: n(ma20),
+          ma60: n(ma60),
+          avg_volume_5: n(avgVol5, 2),
+          avg_volume_20: n(avgVol20, 2),
+          avg_amount_5: n(avgAmt5, 2),
+          high_20: n(high20),
+          low_20: n(low20),
+          high_60: n(high60),
+          low_60: n(low60),
+          position_in_20d_range: position20 == null ? null : n(position20 * 100, 2),
+          trend_bias: trend,
+          history_window_days: rows.length,
+          source_quote_url: quoteUrl,
+          source_history_url: histUrl,
+          url: 'https://xueqiu.com/S/' + q.symbol
+        }];
+      })()
+
+columns: [symbol, code, name, current, percent, turnover_rate, pe_ttm, pb, ma5, ma10, ma20, ma60, high_20, low_20, high_60, low_60, position_in_20d_range, trend_bias, history_window_days]

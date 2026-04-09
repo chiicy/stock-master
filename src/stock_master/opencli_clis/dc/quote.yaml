@@ -1,0 +1,62 @@
+site: dc
+name: quote
+description: 获取东方财富单股实时行情与基础估值字段
+domain: quote.eastmoney.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+args:
+  symbol:
+    type: str
+    required: true
+    description: 股票代码，如 SH600519、SZ000001、BJ430047 或 600519
+
+pipeline:
+  - navigate: https://quote.eastmoney.com/center/gridlist.html#hs_a_board
+  - evaluate: |
+      (async () => {
+        const raw = (${{ args.symbol | json }} || '').trim().toUpperCase();
+        if (!raw) throw new Error('Missing argument: symbol');
+        const normalize = (s) => {
+          const m = s.match(/^(SH|SZ|BJ)?(\d{6})$/i);
+          if (!m) throw new Error('Unsupported symbol: ' + s);
+          const code = m[2];
+          const ex = (m[1] || (/^(5|6|9)/.test(code) ? 'SH' : /^(4|8)/.test(code) ? 'BJ' : 'SZ')).toUpperCase();
+          const market = ex === 'SH' ? '1' : '0';
+          return { symbol: ex + code, code, secid: `${market}.${code}` };
+        };
+        const x = normalize(raw);
+        const url = `https://push2.eastmoney.com/api/qt/stock/get?secid=${encodeURIComponent(x.secid)}&ut=bd1d9ddb04089700cf9c27f6f7426281&invt=2&fltt=2&fields=f57,f58,f43,f44,f45,f46,f47,f48,f49,f50,f51,f52,f60,f116,f117,f162,f163,f164,f167,f168,f169,f170,f171`;
+        const resp = await fetch(url, { credentials: 'include' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        const r = (await resp.json())?.data || {};
+        return [{
+          symbol: x.symbol,
+          code: r.f57 || x.code,
+          name: r.f58 || null,
+          price: r.f43 ?? null,
+          high: r.f44 ?? null,
+          low: r.f45 ?? null,
+          open: r.f46 ?? null,
+          volume: r.f47 ?? null,
+          amount: r.f48 ?? null,
+          volumeRatio: r.f50 ?? null,
+          upperLimit: r.f51 ?? null,
+          lowerLimit: r.f52 ?? null,
+          prevClose: r.f60 ?? null,
+          totalMarketCap: r.f116 ?? null,
+          floatMarketCap: r.f117 ?? null,
+          peDynamic: r.f162 ?? null,
+          peTtm: r.f163 ?? null,
+          peStatic: r.f164 ?? null,
+          pb: r.f167 ?? null,
+          turnoverRate: r.f168 ?? null,
+          changeAmount: r.f169 ?? null,
+          changePercent: r.f170 ?? null,
+          amplitude: r.f171 ?? null,
+          source: 'eastmoney.push2.stock.get'
+        }];
+      })()
+
+columns: [symbol, code, name, price, changePercent, open, high, low, prevClose, volume, amount, turnoverRate, peTtm, pb, totalMarketCap, floatMarketCap]

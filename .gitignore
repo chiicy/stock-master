@@ -1,0 +1,11 @@
+.venv/
+.venv.broken-*/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.DS_Store
+src/*.egg-info/
+src/stock_master.egg-info/
+build/
+dist/

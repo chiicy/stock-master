@@ -1,0 +1,47 @@
+site: xq
+name: latest-rank
+description: 获取雪球热股最新榜（market-hot 的明确封装）
+domain: xueqiu.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+args:
+  limit:
+    type: int
+    default: 20
+    description: 返回数量，默认 20，最大 100
+
+pipeline:
+  - navigate: https://xueqiu.com
+  - evaluate: |
+      (async () => {
+        const count = Math.max(1, Math.min(100, Number(${{ args.limit | json }} || 20)));
+        const url = `https://stock.xueqiu.com/v5/stock/hot_stock/list.json?size=${count}&type=11`;
+        const resp = await fetch(url, { credentials: 'include' });
+        if (!resp.ok) throw new Error('HTTP ' + resp.status + ' Hint: Not logged in?');
+        const d = await resp.json();
+        const rows = Array.isArray(d?.data?.items) ? d.data.items : Array.isArray(d?.data) ? d.data : [];
+        return rows.map((r, i) => {
+          const s = r.stock || r;
+          return {
+            rank: i + 1,
+            category: 'latest',
+            type: '11',
+            symbol: s.symbol || null,
+            code: s.symbol ? String(s.symbol).replace(/^[A-Z]+/, '') : null,
+            name: s.name || null,
+            current: s.current ?? null,
+            percent: s.percent ?? null,
+            change: s.chg ?? null,
+            marketCap: s.market_capital ?? null,
+            floatMarketCap: s.float_market_capital ?? null,
+            heat: r.value ?? r.follow7dIncrease ?? r.follow7d ?? r.follow ?? null,
+            rankChange: r.rank_change ?? null,
+            url: s.symbol ? 'https://xueqiu.com/S/' + s.symbol : null,
+            source: 'xueqiu.hot_stock.list'
+          };
+        });
+      })()
+
+columns: [rank, symbol, name, current, percent, change, marketCap, floatMarketCap, heat, rankChange]

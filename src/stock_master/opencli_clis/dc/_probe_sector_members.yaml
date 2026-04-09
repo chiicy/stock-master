@@ -1,0 +1,41 @@
+site: dc
+name: _probe_sector_members
+description: probe eastmoney board members by board code
+domain: quote.eastmoney.com
+browser: true
+strategy: cookie
+navigateBefore: false
+
+args:
+  board_code:
+    type: str
+    required: true
+  limit:
+    type: int
+    default: 5
+
+pipeline:
+  - navigate: https://quote.eastmoney.com/center/gridlist.html#hs_a_board
+  - evaluate: |
+      (async () => {
+        const boardCode = String(${{ args.board_code | json }} || '').trim().toUpperCase();
+        const limit = Math.max(1, Math.min(20, Number(${{ args.limit | json }} || 5)));
+        if (!boardCode) throw new Error('Missing argument: board_code');
+        const candidates = [
+          `https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=${limit}&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=b:${encodeURIComponent(boardCode)}+f:!50&fields=f12,f14,f2,f3,f4,f5,f6,f7,f8,f9,f10,f15,f16,f17,f18`,
+          `https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=${limit}&po=1&np=1&ut=bd1d9ddb04089700cf9c27f6f7426281&fltt=2&invt=2&fid=f3&fs=b:${encodeURIComponent(boardCode)}&fields=f12,f14,f2,f3,f4,f5,f6,f7,f8,f9,f10,f15,f16,f17,f18`
+        ];
+        const out = [];
+        for (const url of candidates) {
+          try {
+            const resp = await fetch(url, { credentials: 'include' });
+            const text = await resp.text();
+            let json = null;
+            try { json = JSON.parse(text); } catch {}
+            out.push({ url, ok: resp.ok, status: resp.status, total: json?.data?.total ?? null, sample: text.slice(0, 400) });
+          } catch (e) {
+            out.push({ url, error: String(e) });
+          }
+        }
+        return out;
+      })()
