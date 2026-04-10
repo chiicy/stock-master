@@ -62,7 +62,7 @@ stock-master-install-opencli --target-dir ~/.opencli/clis
 1. 一个能力只保留一个实现源。`scripts/` 不再复制 `src/` 的逻辑。
 2. 所有 provider 都输出同一套 datasource contract，而不是“每家自己返回一坨 dict”。
 3. provider 边界完成数据清洗和字段映射，`analysis` 不负责猜源字段。
-4. README 本身要足够解释项目结构，便于新增 provider / 新 capability / 新分析视角。
+4. README 解释项目结构与使用入口；更细的维护与排障说明收敛到 `docs/maintenance.md`。
 
 ## Project Layout
 
