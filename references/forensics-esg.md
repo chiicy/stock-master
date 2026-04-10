@@ -1,6 +1,6 @@
 # 法证排雷与 ESG 传导
 
-> 本文件吸收 `value-investing-detective/references/forensics-esg.md`。目标不是“定罪”，而是把可疑点转成可检验的问题。
+> 目标不是“定罪”，而是把可疑点转成可检验的问题。
 
 ## 红旗写法
 

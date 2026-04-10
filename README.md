@@ -128,10 +128,8 @@ stock-master/
 - `stock_report`
   - 默认单股综合分析
 - `deep_technical`
-  - 吸收 `stock-analysis` 与 `stock-analysis-xiaping-remix`
   - 重点是 `EMA50/EMA200`、`ADX`、支撑/压力、缺口保守表达、未来 3 日判断
 - `deep_fundamental`
-  - 吸收 `value-investing-detective`
   - 重点是 gate、证据质量、估值准备度、法证/ESG 风险与数据缺口透明
 
 约束：
